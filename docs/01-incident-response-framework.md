@@ -81,7 +81,9 @@ The system is split into three distinct layers:
 
 ### 3.2 Agent Interaction Flow
 
-The Supervisor receives a trigger — either a scheduled poll or an external webhook — and routes execution to the **Incident Detector**. When an incident is confirmed the Supervisor routes to the **Root Cause Finder**, then to the **Incident Mitigator**. If the Mitigator's confidence score falls below a configurable threshold, it sends control back to the Root Cause Finder with a feedback message asking for deeper traversal. Once mitigation actions are determined (and optionally executed), control passes to the **Incident Communicator** and finally the **Incident Summarizer**, which persists the incident story into Qdrant for future recall.
+The Supervisor receives a trigger — a scheduled poll of graphserv — and routes to the **Incident Detector**. When an incident is confirmed, the pipeline routes to the **Incident Communicator** first (to print a notification), then to the **Root Cause Finder**, then back through the Communicator again, and on to the **Incident Mitigator**. If the Mitigator's confidence score falls below a configurable threshold it sends control back to the Root Cause Finder (with a feedback message and Qdrant feedback history) for a deeper analysis pass. Once confidence clears the threshold the pipeline goes through the Communicator a third time and ends at the **Incident Summarizer**, which writes the final incident record to Qdrant.
+
+The Incident Communicator acts as a cross-cutting notification layer: it is invoked by the Supervisor after each of the three main phase transitions (`incident_detected`, `root_cause_found`, `mitigation_complete`) and also upserts a rolling partial summary to Qdrant `incident_summaries` after each event.
 
 ---
 
@@ -89,21 +91,21 @@ The Supervisor receives a trigger — either a scheduled poll or an external web
 
 | Component | Technology | Version / Notes |
 |-----------|------------|-----------------|
-| Orchestration framework | LangGraph (Python) | ≥ 0.2 — stateful multi-agent graph |
-| LLM integration | LangChain (Python) | ≥ 0.3 — tools, prompts, chains |
+| Orchestration framework | LangGraph (Python) | ≥ 1.0 — stateful multi-agent graph |
+| LLM integration | LangChain (Python) | ≥ 1.0 — tools, prompts, chains |
 | Local LLM runtime | Ollama | Llama 3.1 8B / Qwen 2.5 7B (tool-calling) |
 | Embedding model | Ollama `nomic-embed-text` | 768-dim, runs locally |
 | Graph database | Neo4j Community 5.x | Accessed via graphserv Go REST API |
-| Vector database | Qdrant | Docker image — 4 collections |
+| Vector database | Qdrant | Docker image — 5 collections |
 | Relational database | MySQL 8 | Sessions, checkpoints, memory bank |
-| MCP framework | Python MCP SDK (`mcp`) | stdio transport |
-| MCP client | `langchain-mcp-adapters` | Converts MCP tools → LangChain tools |
+| MCP framework | Python MCP SDK (`mcp`) | ≥ 1.0, stdio transport |
+| MCP client | `langchain-mcp-adapters` | ≥ 0.2, converts MCP tools → LangChain tools |
 | Graph service | graphserv (existing Go API) | Wraps Neo4j, runs on `:8080` |
 | Containerisation | Docker + Docker Compose | All services in one compose file |
-| Testing | pytest + pytest-asyncio | Unit + integration |
+| Testing | pytest + pytest-asyncio | 89 unit tests, all offline |
 | Async HTTP client | `httpx` | Used by Graph MCP server |
-| MySQL async client | SQLAlchemy + `aiomysql` | Session/memory ops |
-| Qdrant client | `qdrant-client` | Python SDK |
+| MySQL async client | `aiomysql` | LangGraph checkpoint saver |
+| Qdrant client | `qdrant-client` | ≥ 1.7, `AsyncQdrantClient` |
 
 ---
 
@@ -161,16 +163,19 @@ Full schema details are in the [Database Setup](./02-database-setup.md) document
 
 ### 5.3 Qdrant — Vector Database
 
-Qdrant runs as a Docker container on port `6333` with persistent storage mounted to a local volume. Four collections are created at startup, all using 768-dimension vectors and cosine similarity:
+Qdrant runs as a Docker container on port `6333` with persistent storage mounted to a local volume. Five collections are used, all with 768-dimension cosine similarity vectors via `nomic-embed-text`:
 
-| Collection | Content | Used by |
-|------------|---------|---------|
-| `mitigation_workflows` | Step-by-step runbooks for fixing incidents | Incident Mitigator |
-| `rca_documents` | Historical RCA reports and post-mortems | Root Cause Finder |
-| `incident_summaries` | AI-generated summaries of resolved incidents | Summarizer (write), all agents (read) |
-| `change_context` | Recent change tickets affecting infrastructure nodes | Root Cause Finder |
+| Collection | Content | Written by | Read by |
+|---|---|---|---|
+| `mitigation_workflows` | Step-by-step runbooks for fixing incidents | `seed_data.py` | Root Cause Finder |
+| `rca_documents` | Historical RCA reports and post-mortems | `seed_data.py` | Root Cause Finder |
+| `change_context` | Recent change tickets affecting infrastructure nodes | `seed_data.py` | Root Cause Finder |
+| `incident_summaries` | Rolling + final summaries of each incident run | Communicator (×3), Summarizer (×1) | Root Cause Finder |
+| `feedback_history` | Low-confidence and resolved feedback episodes | Incident Mitigator | Root Cause Finder |
 
-Before running agents, the `mitigation_workflows` collection is seeded with runbooks written as YAML files describing common scenarios (high CPU on an Application node, storage latency spike, network packet loss, etc.). A one-time ingestion script embeds the combined `name + description` and stores the full steps JSON as payload.
+The `incident_summaries` and `feedback_history` collections grow at runtime — every completed incident run writes to them, making the system progressively smarter. All other collections are seeded once via `qdrant_data/seed_data.py`.
+
+Summary upserts use a deterministic `uuid5` point ID so the Communicator's three partial updates are overwritten by the Summarizer's final record — one point per incident. Feedback history uses random UUIDs so every episode is preserved as a unique point.
 
 ### 5.4 MCP Servers
 
@@ -399,46 +404,47 @@ services:
 ## 9. Project Directory Structure
 
 ```
-incident-response/                    # Python project root
-├── docker-compose.yml
-├── agent_framework/                  # Python package
-│   ├── Dockerfile
-│   ├── requirements.txt
-│   ├── trigger.py                    # CLI entry point (poll loop)
-│   ├── llm/
-│   │   └── factory.py                # LLM & embedding factory
-│   ├── memory/
-│   │   ├── mysql_saver.py            # LangGraph MySQL checkpoint saver
-│   │   └── memory_bank.py            # agent_memory CRUD
-│   ├── vector/
-│   │   ├── setup.py                  # Qdrant collection init
-│   │   └── operations.py             # search, upsert helpers
-│   ├── mcp_servers/
-│   │   ├── graph_db/server.py        # Graph DB MCP server
-│   │   ├── mitigation/server.py      # Mitigation MCP server
-│   │   └── comms/server.py           # Communication MCP server
-│   ├── agents/
-│   │   ├── state.py                  # AgentState TypedDict
-│   │   ├── supervisor.py
-│   │   ├── incident_detector.py
-│   │   ├── root_cause_finder.py
-│   │   ├── incident_mitigator.py
-│   │   ├── incident_communicator.py
-│   │   └── incident_summarizer.py
-│   └── graph/
-│       └── workflow.py               # LangGraph StateGraph assembly
-├── sql/
-│   └── schema.sql                    # MySQL DDL
-├── workflows/                        # YAML mitigation runbooks
-│   ├── high_cpu_application.yaml
-│   ├── storage_latency_spike.yaml
-│   └── network_packet_loss.yaml
-├── scripts/
-│   └── seed_workflows.py             # Seeds Qdrant with YAML runbooks
-├── logs/                             # Communication stub output
-└── tests/
-    ├── unit/
-    └── integration/
+incident-response/
+├── docker-compose.yml                       # All 6 services
+├── graphserv/                               # Go REST API (Neo4j wrapper)
+├── graphmcpserv/                            # Graph DB MCP server (Python)
+│   └── mcp_servers/graph_db/server.py
+├── qdrant_data/
+│   └── seed_data.py                         # Seeds all 5 Qdrant collections
+└── autoincrespagent/                        # LangGraph agent package
+    ├── Dockerfile
+    ├── pyproject.toml
+    ├── .env.example
+    ├── trigger.py                           # CLI entry point (poll loop)
+    ├── autoincrespagent/
+    │   ├── config.py                        # pydantic-settings — reads .env
+    │   ├── llm/
+    │   │   └── factory.py                   # get_llm(agent_name) → ChatOllama
+    │   ├── agents/
+    │   │   ├── state.py                     # AgentState TypedDict
+    │   │   ├── supervisor.py                # Deterministic phase router
+    │   │   ├── incident_detector.py         # Phase 1 — anomaly classification
+    │   │   ├── incident_communicator.py     # Cross-phase — print + Qdrant upsert
+    │   │   ├── root_cause_finder.py         # Phase 2 — graph + RAG + LLM
+    │   │   ├── incident_mitigator.py        # Phase 3 — mock execution + feedback save
+    │   │   └── incident_summarizer.py       # Phase 5 — summary + Qdrant upsert
+    │   ├── graph/
+    │   │   ├── mcp_client.py                # MultiServerMCPClient factory
+    │   │   └── workflow.py                  # StateGraph assembly
+    │   ├── memory/
+    │   │   └── mysql_saver.py               # LangGraph MySQL checkpoint saver
+    │   └── vector/
+    │       └── qdrant_search.py             # Shared async Qdrant search helper
+    ├── sql/
+    │   └── schema.sql                       # MySQL DDL
+    └── tests/
+        └── unit/
+            ├── test_supervisor.py
+            ├── test_detector.py
+            ├── test_root_cause_finder.py
+            ├── test_incident_mitigator.py
+            ├── test_incident_communicator.py
+            └── test_incident_summarizer.py
 ```
 
 ---
