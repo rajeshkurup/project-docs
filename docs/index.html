@@ -223,13 +223,20 @@
 //
 // URL scheme:  #<projectId>/<docNum>           — load a doc
 //              #<projectId>/<docNum>:<anchor>  — load a doc and scroll to heading
+//
+// IMPORTANT: serve from the incident-response/ project root, not from this
+// folder, so that repository README files are reachable:
+//
+//   cd incident-response/
+//   python3 -m http.server 8000
+//   open http://localhost:8000/project-docs/docs/
 // ════════════════════════════════════════════════════════════════════════════
 const PROJECTS = [
   {
     id:          "incident-response",
     name:        "Incident Response Framework",
     description: "AI-powered multi-agent system for automated infrastructure incident response — built on graphserv, Neo4j, LangGraph, Ollama, Qdrant, and MySQL.",
-    basePath:    "",   // markdown files are in the same directory as index.html
+    basePath:    "project-docs/docs/",   // relative to incident-response/ root
     docs: [
       { num: "01", file: "01-incident-response-framework.md", title: "Framework & Plan" },
       { num: "02", file: "02-database-setup.md",               title: "Database Setup & Schemas" },
@@ -237,8 +244,55 @@ const PROJECTS = [
       { num: "04", file: "04-mcp-servers.md",                   title: "Building MCP Servers" },
       { num: "05", file: "05-langgraph-agents.md",              title: "LangGraph Agents" },
     ]
+  },
+  {
+    id:          "repositories",
+    name:        "Repositories",
+    description: "Source README files for each component repository in this project.",
+    basePath:    "",                     // files are at the incident-response/ root level
+    docs: [
+      { num: "01", file: "autoincrespagent/README.md",  title: "autoincrespagent" },
+      { num: "02", file: "graphserv/README.md",          title: "graphserv" },
+      { num: "03", file: "graphmcpserv/README.md",       title: "graphmcpserv" },
+      { num: "04", file: "mitigationmcpserv/README.md",  title: "mitigationmcpserv" },
+      { num: "05", file: "commsmcpserv/README.md",       title: "commsmcpserv" },
+      { num: "06", file: "CHANGELOG.md",                 title: "Changelog" },
+    ]
   }
 ];
+
+// ════════════════════════════════════════════════════════════════════════════
+// FILE → ROUTE MAP
+//
+// Built from PROJECTS so any .md link in any doc can be resolved to a route
+// regardless of which project or directory it lives in.
+// Key: full path relative to the server root (basePath + file).
+// Value: "projectId/docNum"
+// ════════════════════════════════════════════════════════════════════════════
+const FILE_ROUTE_MAP = {};
+PROJECTS.forEach(proj => {
+  proj.docs.forEach(doc => {
+    FILE_ROUTE_MAP[proj.basePath + doc.file] = `${proj.id}/${doc.num}`;
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// RESOLVE PATH
+//
+// Resolves a relative link found in a markdown file against the directory
+// of that file, returning a normalised path from the server root.
+// E.g. resolvePath("autoincrespagent/", "../graphserv/README.md")
+//      → "graphserv/README.md"
+// ════════════════════════════════════════════════════════════════════════════
+function resolvePath(baseDir, rel) {
+  const parts = (baseDir + rel).split('/');
+  const out = [];
+  for (const p of parts) {
+    if (p === '..') out.pop();
+    else if (p !== '.') out.push(p);
+  }
+  return out.join('/');
+}
 
 // ════════════════════════════════════════════════════════════════════════════
 // SLUGIFY
@@ -434,7 +488,7 @@ async function loadDoc(proj, doc, anchor) {
     ensureHeadingIds();
 
     // Intercept links inside the rendered document.
-    rewriteLinks(proj);
+    rewriteLinks(proj, doc);
 
     if (anchor) {
       setTimeout(() => scrollToAnchor(anchor), 80);
@@ -446,10 +500,10 @@ async function loadDoc(proj, doc, anchor) {
       '<h1>Unable to load document</h1>' +
       '<p>Could not fetch <code>' + doc.file + '</code>: ' + err.message + '</p>' +
       '<p>If you opened this file directly from disk, browsers block <code>fetch()</code> for ' +
-      'local files. Serve the folder with a local HTTP server instead:</p>' +
-      '<pre><code>python3 -m http.server 8000</code></pre>' +
-      '<p>Then open <a href="http://localhost:8000/">http://localhost:8000/</a>. ' +
-      'On GitHub Pages this works automatically.</p>';
+      'local files. Serve from the <strong>incident-response/ project root</strong> ' +
+      '(not from this docs folder) so all repository files are reachable:</p>' +
+      '<pre><code>cd incident-response/\npython3 -m http.server 8000</code></pre>' +
+      '<p>Then open <a href="http://localhost:8000/project-docs/docs/">http://localhost:8000/project-docs/docs/</a>.</p>';
   }
 }
 
@@ -489,18 +543,27 @@ function scrollToAnchor(anchor) {
 // ════════════════════════════════════════════════════════════════════════════
 // REWRITE LINKS in rendered markdown
 //
-// Three cases:
-//   1. Pure anchor  (#section-name)           → scroll only, never re-route
-//   2. Same-project cross-doc link             → navigate() to that doc
-//      (e.g. ./04-mcp-servers.md or ./04-mcp-servers.md#anchor)
-//   3. External link (http/https)              → open in new tab
+// Four cases:
+//   1. Pure anchor  (#section-name)    → scroll only, never re-route
+//   2. Any relative .md link           → resolve against current file's dir,
+//      look up in FILE_ROUTE_MAP, navigate() if found
+//   3. External link (http/https)      → open in new tab
+//   4. Anything else                   → leave as-is
+//
+// currentDir: directory of the file being rendered, relative to server root
+//   e.g. "project-docs/docs/" for the framework docs
+//        "autoincrespagent/"   for that repo's README
 // ════════════════════════════════════════════════════════════════════════════
-function rewriteLinks(currentProj) {
+function rewriteLinks(proj, doc) {
+  // Directory of the current file relative to the server root
+  const fullPath   = proj.basePath + doc.file;
+  const currentDir = fullPath.replace(/[^/]*$/, '');  // strip filename
+
   contentEl.querySelectorAll('a[href]').forEach(a => {
     const href = a.getAttribute('href');
     if (!href) return;
 
-    // Case 1: in-page anchor link (Table of Contents entries)
+    // Case 1: in-page anchor link (Table of Contents entries like #1-why-mcp)
     if (href.startsWith('#')) {
       a.addEventListener('click', e => {
         e.preventDefault();
@@ -509,28 +572,32 @@ function rewriteLinks(currentProj) {
       return;
     }
 
-    // Case 2: cross-doc markdown link (relative, within the same project)
-    const clean = href.replace(/^\.\//, '');
-    if (/^[\w-]+\.md(#.*)?$/.test(clean)) {
-      const hashIdx = clean.indexOf('#');
-      const file    = hashIdx >= 0 ? clean.slice(0, hashIdx) : clean;
-      const anchor  = hashIdx >= 0 ? clean.slice(hashIdx + 1) : null;
-      const doc     = currentProj.docs.find(d => d.file === file);
-      if (doc) {
-        const route = `${currentProj.id}/${doc.num}`;
-        a.addEventListener('click', e => {
-          e.preventDefault();
-          navigate(route, anchor);
-        });
-      }
-      return;
-    }
-
-    // Case 3: external link
+    // Case 3: external link — open in new tab, nothing else to do
     if (/^https?:\/\//.test(href)) {
       a.target = '_blank';
       a.rel = 'noopener noreferrer';
+      return;
     }
+
+    // Case 2: relative markdown link — could be same-dir, subdir, or cross-repo
+    // Strip leading "./" if present, then split off any #anchor fragment
+    const raw     = href.replace(/^\.\//, '');
+    const hashIdx = raw.indexOf('#');
+    const relFile = hashIdx >= 0 ? raw.slice(0, hashIdx) : raw;
+    const anchor  = hashIdx >= 0 ? raw.slice(hashIdx + 1) : null;
+
+    // Only handle .md files; leave image/code/other relative links alone
+    if (!relFile.endsWith('.md')) return;
+
+    const resolved = resolvePath(currentDir, relFile);   // path from server root
+    const route    = FILE_ROUTE_MAP[resolved];
+    if (route) {
+      a.addEventListener('click', e => {
+        e.preventDefault();
+        navigate(route, anchor);
+      });
+    }
+    // If not in the map (e.g. CHANGELOG.md), leave the link as-is
   });
 }
 
