@@ -14,8 +14,6 @@ This site is a structured walkthrough of every layer in the stack: the framework
 4. **[Building MCP Servers](./04-mcp-servers.md)** — designing, implementing, and wiring the Graph DB, Mitigation, and Comms MCP servers so agents can call typed tools.
 5. **[Building Agents with LangGraph](./05-langgraph-agents.md)** — shared state, Supervisor routing, the six specialist agents, the mitigation feedback loop, MySQL checkpointing, and testing.
 
-For a full history of changes across all repositories in this project, see the **[Changelog](../../CHANGELOG.md)**.
-
 ---
 
 ## Quick Start

@@ -195,7 +195,6 @@
     <p class="sidebar-brand">Documentation</p>
     <div class="sidebar-home">
       <a href="#home" data-route="home">&#8962;&nbsp; Home</a>
-      <a href="#repositories/06" data-route="repositories/06">&#128203;&nbsp; Changelog</a>
     </div>
     <div id="project-nav"></div>
     <div class="sidebar-footer">Engineering Documentation Portal</div>
@@ -207,42 +206,13 @@
 
 <script>
 // ════════════════════════════════════════════════════════════════════════════
-// SERVING-CONTEXT DETECTION
-//
-// basePaths are computed at runtime from window.location so the portal works
-// regardless of which directory the HTTP server is started from.
-//
-// Mode A — serve from incident-response/ root  (recommended: gives access to
-//           all repository READMEs)
-//
-//   cd incident-response/
-//   python3 -m http.server 8000
-//   open http://localhost:8000/project-docs/docs/
-//
-// Mode B — serve from project-docs/docs/  (framework docs only; repository
-//           READMEs are not reachable because the HTTP server cannot serve
-//           files above its own root directory)
-//
-//   cd project-docs/docs/
-//   python3 -m http.server 8000
-//   open http://localhost:8000/
-//
-// Detection: if the page URL contains "/project-docs/docs" in its path,
-// we are in Mode A and must prefix framework doc fetches with that path.
-// ════════════════════════════════════════════════════════════════════════════
-const _atProjectRoot = window.location.pathname.includes('/project-docs/docs');
-const _docsBase      = _atProjectRoot ? 'project-docs/docs/' : '';
-const _repoBase      = _atProjectRoot ? '' : '../../';
-// Note: in Mode B _repoBase resolves to paths above the server root.
-// Python's http.server blocks those, so repository links will 404 with a
-// message explaining how to switch to Mode A.
-
-// ════════════════════════════════════════════════════════════════════════════
 // PROJECT REGISTRY
 //
-// To add a new project, append an entry to this array.
-// Use _docsBase / _repoBase for files near this portal, or a literal string
-// for projects served from their own subdirectory.
+// Designed for GitHub Pages: all markdown files are in the same directory as
+// index.html, so basePath is always "".
+//
+// To add a new project, append an entry to this array and place its .md
+// files in the same directory (or a subdirectory, adjusting basePath).
 //
 // URL scheme:  #<projectId>/<docNum>           — load a doc
 //              #<projectId>/<docNum>:<anchor>  — load a doc and scroll to heading
@@ -252,27 +222,13 @@ const PROJECTS = [
     id:          "incident-response",
     name:        "Incident Response Framework",
     description: "AI-powered multi-agent system for automated infrastructure incident response — built on graphserv, Neo4j, LangGraph, Ollama, Qdrant, and MySQL.",
-    basePath:    _docsBase,
+    basePath:    "",
     docs: [
       { num: "01", file: "01-incident-response-framework.md", title: "Framework & Plan" },
       { num: "02", file: "02-database-setup.md",               title: "Database Setup & Schemas" },
       { num: "03", file: "03-graphserv-rest-service.md",        title: "graphserv REST Service" },
       { num: "04", file: "04-mcp-servers.md",                   title: "Building MCP Servers" },
       { num: "05", file: "05-langgraph-agents.md",              title: "LangGraph Agents" },
-    ]
-  },
-  {
-    id:          "repositories",
-    name:        "Repositories",
-    description: "Source README files for each component repository. Requires serving from the incident-response/ project root.",
-    basePath:    _repoBase,
-    docs: [
-      { num: "01", file: "autoincrespagent/README.md",  title: "autoincrespagent" },
-      { num: "02", file: "graphserv/README.md",          title: "graphserv" },
-      { num: "03", file: "graphmcpserv/README.md",       title: "graphmcpserv" },
-      { num: "04", file: "mitigationmcpserv/README.md",  title: "mitigationmcpserv" },
-      { num: "05", file: "commsmcpserv/README.md",       title: "commsmcpserv" },
-      { num: "06", file: "CHANGELOG.md",                 title: "Changelog" },
     ]
   }
 ];
@@ -297,8 +253,7 @@ PROJECTS.forEach(proj => {
 //
 // Resolves a relative link found in a markdown file against the directory
 // of that file, returning a normalised path from the server root.
-// E.g. resolvePath("autoincrespagent/", "../graphserv/README.md")
-//      → "graphserv/README.md"
+// E.g. resolvePath("subdir/", "../other.md") → "other.md"
 // ════════════════════════════════════════════════════════════════════════════
 function resolvePath(baseDir, rel) {
   const parts = (baseDir + rel).split('/');
@@ -518,17 +473,13 @@ async function loadDoc(proj, doc, anchor) {
     contentEl.innerHTML =
       '<h1>Unable to load document</h1>' +
       '<p>Could not fetch <code>' + doc.file + '</code>: ' + err.message + '</p>' +
-      '<p>Could not load this file. Two common causes:</p>' +
+      '<p>Two common causes:</p>' +
       '<ol>' +
-      '<li><strong>Opened directly from disk</strong> — browsers block <code>fetch()</code> for local files. ' +
-      'Use a local HTTP server instead.</li>' +
-      '<li><strong>Server started inside <code>project-docs/docs/</code></strong> — repository README files ' +
-      'live outside that directory and cannot be served from there.</li>' +
-      '</ol>' +
-      '<p>Start the server from the <strong>incident-response/ project root</strong> to fix both issues:</p>' +
-      '<pre><code>cd incident-response/\npython3 -m http.server 8000</code></pre>' +
-      '<p>Then open <a href="http://localhost:8000/project-docs/docs/">http://localhost:8000/project-docs/docs/</a></p>' +
-      '<p>Framework docs work from either location. Repository READMEs require the project root.</p>';
+      '<li><strong>Opened directly from disk</strong> — browsers block <code>fetch()</code> for <code>file://</code> URLs. ' +
+      'This site is designed for GitHub Pages; push to your repository and access it via the published URL.</li>' +
+      '<li><strong>Missing file</strong> — the document was not committed alongside <code>index.html</code>. ' +
+      'Ensure all <code>.md</code> files listed in PROJECTS are present in the same directory.</li>' +
+      '</ol>';
   }
 }
 
