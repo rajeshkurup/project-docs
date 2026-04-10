@@ -241,13 +241,30 @@ For a single-file narrative covering the architecture, phased plan, and deployme
   const contentEl = document.getElementById("content");
   const navLinks = document.querySelectorAll("#nav-list a");
 
+  const DOC_NUM_MAP = {
+    "01": "01-incident-response-framework.md",
+    "02": "02-database-setup.md",
+    "03": "03-graphserv-rest-service.md",
+    "04": "04-mcp-servers.md",
+    "05": "05-langgraph-agents.md"
+  };
+
   function setActive(docKey) {
     navLinks.forEach(a => {
       a.classList.toggle("active", a.dataset.doc === docKey);
     });
   }
 
-  async function loadDoc(docKey) {
+  function scrollToAnchor(anchor) {
+    if (!anchor) return;
+    // marked generates IDs for headings; try the anchor directly
+    const target = document.getElementById(anchor);
+    if (target) {
+      target.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }
+
+  async function loadDoc(docKey, anchor) {
     setActive(docKey);
     contentEl.innerHTML = '<p id="loading">Loading…</p>';
     try {
@@ -263,7 +280,12 @@ For a single-file narrative covering the architecture, phased plan, and deployme
       contentEl.innerHTML = html;
       contentEl.querySelectorAll("pre code").forEach(block => hljs.highlightElement(block));
       rewriteInternalLinks();
-      window.scrollTo(0, 0);
+      if (anchor) {
+        // Small delay so the DOM is fully painted before scrolling
+        setTimeout(() => scrollToAnchor(anchor), 80);
+      } else {
+        window.scrollTo(0, 0);
+      }
     } catch (err) {
       contentEl.innerHTML = '<h1>Unable to load document</h1><p>' +
         'Could not fetch <code>' + docKey + '</code>: ' + err.message + '</p>' +
@@ -279,20 +301,29 @@ For a single-file narrative covering the architecture, phased plan, and deployme
     contentEl.querySelectorAll("a[href]").forEach(a => {
       const href = a.getAttribute("href");
       if (!href) return;
-      // intercept links to other .md files in this folder
-      const clean = href.replace(/^\.\//, "");
-      if (/^\d\d-[\w-]+\.md(#.*)?$/.test(clean)) {
-        const [file, hash] = clean.split("#");
+
+      // In-page anchor links (Table of Contents entries like #1-why-mcp)
+      // Scroll to the target element without touching the doc-level router.
+      if (href.startsWith("#")) {
         a.addEventListener("click", e => {
           e.preventDefault();
-          const newHash = "#" + file.replace(/^(\d\d)-.*$/, "$1") + (hash ? ":" + hash : "");
-          history.pushState({ doc: file }, "", newHash);
-          loadDoc(file).then(() => {
-            if (hash) {
-              const target = document.getElementById(hash);
-              if (target) target.scrollIntoView();
-            }
-          });
+          scrollToAnchor(href.slice(1));
+        });
+        return;
+      }
+
+      // Cross-document links (e.g. ./04-mcp-servers.md or ./04-mcp-servers.md#section)
+      const clean = href.replace(/^\.\//, "");
+      if (/^\d\d-[\w-]+\.md(#.*)?$/.test(clean)) {
+        const hashIdx = clean.indexOf("#");
+        const file   = hashIdx >= 0 ? clean.slice(0, hashIdx) : clean;
+        const anchor = hashIdx >= 0 ? clean.slice(hashIdx + 1) : null;
+        a.addEventListener("click", e => {
+          e.preventDefault();
+          const num = file.replace(/^(\d\d)-.*$/, "$1");
+          const newHash = "#" + num + (anchor ? ":" + anchor : "");
+          history.pushState({ doc: file, anchor }, "", newHash);
+          loadDoc(file, anchor);
         });
       }
     });
@@ -301,16 +332,14 @@ For a single-file narrative covering the architecture, phased plan, and deployme
   function routeFromHash() {
     const h = window.location.hash.replace(/^#/, "");
     if (!h || h === "home") { loadDoc("home"); return; }
-    const num = h.split(":")[0];
-    const map = {
-      "01": "01-incident-response-framework.md",
-      "02": "02-database-setup.md",
-      "03": "03-graphserv-rest-service.md",
-      "04": "04-mcp-servers.md",
-      "05": "05-langgraph-agents.md"
-    };
-    if (map[num]) {
-      loadDoc(map[num]);
+
+    // Format: #NN  or  #NN:in-page-anchor
+    const colonIdx = h.indexOf(":");
+    const num    = colonIdx >= 0 ? h.slice(0, colonIdx) : h;
+    const anchor = colonIdx >= 0 ? h.slice(colonIdx + 1) : null;
+
+    if (DOC_NUM_MAP[num]) {
+      loadDoc(DOC_NUM_MAP[num], anchor);
     } else {
       loadDoc("home");
     }
