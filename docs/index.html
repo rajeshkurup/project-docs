@@ -207,37 +207,52 @@
 
 <script>
 // ════════════════════════════════════════════════════════════════════════════
-// PROJECT REGISTRY
+// SERVING-CONTEXT DETECTION
 //
-// To add a new project, append an entry to this array:
+// basePaths are computed at runtime from window.location so the portal works
+// regardless of which directory the HTTP server is started from.
 //
-//   {
-//     id:          "my-project",          // used in URLs: #my-project/01
-//     name:        "My Project",          // sidebar + home page heading
-//     description: "What it does.",       // shown on the home page card
-//     basePath:    "my-project/",         // path prefix relative to index.html
-//                                         // use "" if files are in the same folder
-//     docs: [
-//       { num: "01", file: "01-overview.md", title: "Overview" },
-//     ]
-//   }
-//
-// URL scheme:  #<projectId>/<docNum>           — load a doc
-//              #<projectId>/<docNum>:<anchor>  — load a doc and scroll to heading
-//
-// IMPORTANT: serve from the incident-response/ project root, not from this
-// folder, so that repository README files are reachable:
+// Mode A — serve from incident-response/ root  (recommended: gives access to
+//           all repository READMEs)
 //
 //   cd incident-response/
 //   python3 -m http.server 8000
 //   open http://localhost:8000/project-docs/docs/
+//
+// Mode B — serve from project-docs/docs/  (framework docs only; repository
+//           READMEs are not reachable because the HTTP server cannot serve
+//           files above its own root directory)
+//
+//   cd project-docs/docs/
+//   python3 -m http.server 8000
+//   open http://localhost:8000/
+//
+// Detection: if the page URL contains "/project-docs/docs" in its path,
+// we are in Mode A and must prefix framework doc fetches with that path.
+// ════════════════════════════════════════════════════════════════════════════
+const _atProjectRoot = window.location.pathname.includes('/project-docs/docs');
+const _docsBase      = _atProjectRoot ? 'project-docs/docs/' : '';
+const _repoBase      = _atProjectRoot ? '' : '../../';
+// Note: in Mode B _repoBase resolves to paths above the server root.
+// Python's http.server blocks those, so repository links will 404 with a
+// message explaining how to switch to Mode A.
+
+// ════════════════════════════════════════════════════════════════════════════
+// PROJECT REGISTRY
+//
+// To add a new project, append an entry to this array.
+// Use _docsBase / _repoBase for files near this portal, or a literal string
+// for projects served from their own subdirectory.
+//
+// URL scheme:  #<projectId>/<docNum>           — load a doc
+//              #<projectId>/<docNum>:<anchor>  — load a doc and scroll to heading
 // ════════════════════════════════════════════════════════════════════════════
 const PROJECTS = [
   {
     id:          "incident-response",
     name:        "Incident Response Framework",
     description: "AI-powered multi-agent system for automated infrastructure incident response — built on graphserv, Neo4j, LangGraph, Ollama, Qdrant, and MySQL.",
-    basePath:    "project-docs/docs/",   // relative to incident-response/ root
+    basePath:    _docsBase,
     docs: [
       { num: "01", file: "01-incident-response-framework.md", title: "Framework & Plan" },
       { num: "02", file: "02-database-setup.md",               title: "Database Setup & Schemas" },
@@ -249,8 +264,8 @@ const PROJECTS = [
   {
     id:          "repositories",
     name:        "Repositories",
-    description: "Source README files for each component repository in this project.",
-    basePath:    "",                     // files are at the incident-response/ root level
+    description: "Source README files for each component repository. Requires serving from the incident-response/ project root.",
+    basePath:    _repoBase,
     docs: [
       { num: "01", file: "autoincrespagent/README.md",  title: "autoincrespagent" },
       { num: "02", file: "graphserv/README.md",          title: "graphserv" },
@@ -503,11 +518,17 @@ async function loadDoc(proj, doc, anchor) {
     contentEl.innerHTML =
       '<h1>Unable to load document</h1>' +
       '<p>Could not fetch <code>' + doc.file + '</code>: ' + err.message + '</p>' +
-      '<p>If you opened this file directly from disk, browsers block <code>fetch()</code> for ' +
-      'local files. Serve from the <strong>incident-response/ project root</strong> ' +
-      '(not from this docs folder) so all repository files are reachable:</p>' +
+      '<p>Could not load this file. Two common causes:</p>' +
+      '<ol>' +
+      '<li><strong>Opened directly from disk</strong> — browsers block <code>fetch()</code> for local files. ' +
+      'Use a local HTTP server instead.</li>' +
+      '<li><strong>Server started inside <code>project-docs/docs/</code></strong> — repository README files ' +
+      'live outside that directory and cannot be served from there.</li>' +
+      '</ol>' +
+      '<p>Start the server from the <strong>incident-response/ project root</strong> to fix both issues:</p>' +
       '<pre><code>cd incident-response/\npython3 -m http.server 8000</code></pre>' +
-      '<p>Then open <a href="http://localhost:8000/project-docs/docs/">http://localhost:8000/project-docs/docs/</a>.</p>';
+      '<p>Then open <a href="http://localhost:8000/project-docs/docs/">http://localhost:8000/project-docs/docs/</a></p>' +
+      '<p>Framework docs work from either location. Repository READMEs require the project root.</p>';
   }
 }
 
