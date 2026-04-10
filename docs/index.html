@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>AI Agentic Incident Response Framework — Documentation</title>
+<title>Engineering Documentation</title>
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.6/dist/purify.min.js"></script>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github.min.css">
@@ -13,7 +13,6 @@
     --sidebar-width: 300px;
     --sidebar-bg: #0d1117;
     --sidebar-fg: #c9d1d9;
-    --sidebar-accent: #58a6ff;
     --sidebar-hover: #161b22;
     --sidebar-active: #1f6feb;
     --content-bg: #ffffff;
@@ -24,87 +23,94 @@
   }
   * { box-sizing: border-box; }
   html, body {
-    margin: 0;
-    padding: 0;
-    height: 100%;
+    margin: 0; padding: 0; height: 100%;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
     color: var(--content-fg);
     background: var(--content-bg);
   }
-  .layout {
-    display: flex;
-    min-height: 100vh;
-  }
+  .layout { display: flex; min-height: 100vh; }
+
+  /* ── Sidebar ──────────────────────────────────────────────── */
   nav.sidebar {
     width: var(--sidebar-width);
     background: var(--sidebar-bg);
     color: var(--sidebar-fg);
-    padding: 28px 20px;
+    padding: 20px 14px 28px;
     position: fixed;
-    top: 0;
-    left: 0;
-    bottom: 0;
+    top: 0; left: 0; bottom: 0;
     overflow-y: auto;
     border-right: 1px solid #30363d;
   }
-  nav.sidebar h1 {
-    font-size: 15px;
+  .sidebar-brand {
+    font-size: 11px;
     text-transform: uppercase;
-    letter-spacing: 0.06em;
+    letter-spacing: 0.08em;
     color: #8b949e;
-    margin: 0 0 6px 0;
+    margin: 0 6px 14px;
   }
-  nav.sidebar h2 {
-    font-size: 18px;
-    color: #f0f6fc;
-    margin: 0 0 24px 0;
-    font-weight: 600;
-    line-height: 1.3;
-  }
-  nav.sidebar ul {
-    list-style: none;
-    padding: 0;
-    margin: 0 0 24px 0;
-  }
-  nav.sidebar li { margin: 2px 0; }
-  nav.sidebar a {
+  .sidebar-home a {
     display: block;
-    padding: 9px 12px;
+    padding: 8px 10px;
     color: var(--sidebar-fg);
     text-decoration: none;
     border-radius: 6px;
-    font-size: 14px;
+    font-size: 13.5px;
+    margin-bottom: 18px;
+    transition: background 0.12s, color 0.12s;
+  }
+  .sidebar-home a:hover  { background: var(--sidebar-hover); color: #fff; }
+  .sidebar-home a.active { background: var(--sidebar-active); color: #fff; font-weight: 500; }
+
+  .project-section { margin-bottom: 22px; }
+  .project-label {
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: #6e7681;
+    font-weight: 600;
+    padding: 0 10px;
+    margin: 0 0 5px;
+  }
+  .project-section ul { list-style: none; padding: 0; margin: 0; }
+  .project-section li { margin: 1px 0; }
+  .project-section a {
+    display: flex;
+    align-items: baseline;
+    gap: 7px;
+    padding: 7px 10px;
+    color: var(--sidebar-fg);
+    text-decoration: none;
+    border-radius: 6px;
+    font-size: 13px;
     line-height: 1.4;
-    transition: background 0.15s, color 0.15s;
+    transition: background 0.12s, color 0.12s;
   }
-  nav.sidebar a:hover {
-    background: var(--sidebar-hover);
-    color: #ffffff;
-  }
-  nav.sidebar a.active {
-    background: var(--sidebar-active);
-    color: #ffffff;
-    font-weight: 500;
-  }
-  nav.sidebar .num {
-    display: inline-block;
-    width: 22px;
-    color: #8b949e;
+  .project-section a:hover  { background: var(--sidebar-hover); color: #fff; }
+  .project-section a.active { background: var(--sidebar-active); color: #fff; font-weight: 500; }
+  .doc-num {
+    flex-shrink: 0;
+    width: 20px;
+    font-size: 11px;
+    color: #6e7681;
     font-variant-numeric: tabular-nums;
   }
-  nav.sidebar a.active .num { color: #c6e2ff; }
-  nav.sidebar .footer {
-    font-size: 12px;
+  .project-section a.active .doc-num { color: #c6e2ff; }
+
+  .sidebar-footer {
+    font-size: 11px;
     color: #6e7681;
-    margin-top: 32px;
-    padding-top: 20px;
+    margin-top: 20px;
+    padding-top: 14px;
     border-top: 1px solid #30363d;
     line-height: 1.5;
+    padding-left: 6px;
   }
+
+  /* ── Main content ─────────────────────────────────────────── */
   main {
     margin-left: var(--sidebar-width);
     flex: 1;
-    padding: 48px 64px 80px 64px;
+    padding: 48px 64px 80px;
     max-width: 960px;
   }
   main h1, main h2, main h3, main h4 {
@@ -112,7 +118,7 @@
     margin-bottom: 0.6em;
     line-height: 1.25;
   }
-  main h1 { font-size: 2em; border-bottom: 1px solid var(--border); padding-bottom: 0.3em; }
+  main h1 { font-size: 2em;   border-bottom: 1px solid var(--border); padding-bottom: 0.3em; }
   main h2 { font-size: 1.5em; border-bottom: 1px solid var(--border); padding-bottom: 0.3em; }
   main h3 { font-size: 1.25em; }
   main p, main li { line-height: 1.65; }
@@ -140,11 +146,7 @@
     margin: 1em 0;
     font-size: 0.93em;
   }
-  main th, main td {
-    border: 1px solid var(--border);
-    padding: 8px 12px;
-    text-align: left;
-  }
+  main th, main td { border: 1px solid var(--border); padding: 8px 12px; text-align: left; }
   main th { background: var(--code-bg); font-weight: 600; }
   main tr:nth-child(even) td { background: #fafbfc; }
   main blockquote {
@@ -154,20 +156,34 @@
     margin: 1em 0;
   }
   main hr { border: none; border-top: 1px solid var(--border); margin: 2em 0; }
-  #loading {
-    color: #6e7681;
-    font-style: italic;
+
+  /* ── Home page project cards ──────────────────────────────── */
+  .project-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 16px;
+    margin: 24px 0;
   }
+  .project-card {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px;
+    transition: border-color 0.15s, box-shadow 0.15s;
+  }
+  .project-card:hover { border-color: var(--link); box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+  .project-card h3 { margin: 0 0 8px; font-size: 1em; border: none; padding: 0; }
+  .project-card h3 a { color: var(--content-fg); font-weight: 600; }
+  .project-card p { margin: 0 0 12px; font-size: 0.88em; color: #57606a; }
+  .project-card ul { margin: 0; padding-left: 16px; font-size: 0.87em; }
+  .project-card ul li { margin: 3px 0; }
+
+  /* ── Responsive ───────────────────────────────────────────── */
   @media (max-width: 860px) {
     :root { --sidebar-width: 240px; }
-    main { padding: 28px 24px 60px 24px; }
+    main { padding: 28px 24px 60px; }
   }
   @media (max-width: 640px) {
-    nav.sidebar {
-      position: static;
-      width: 100%;
-      height: auto;
-    }
+    nav.sidebar { position: static; width: 100%; height: auto; }
     main { margin-left: 0; padding: 24px 18px; }
     .layout { flex-direction: column; }
   }
@@ -176,187 +192,354 @@
 <body>
 <div class="layout">
   <nav class="sidebar" aria-label="Documentation navigation">
-    <h1>Documentation</h1>
-    <h2>AI Agentic Incident Response Framework</h2>
-    <ul id="nav-list">
-      <li><a href="#home" data-doc="home"><span class="num">•</span> Home</a></li>
-      <li><a href="#01" data-doc="01-incident-response-framework.md"><span class="num">1.</span> Incident Response Framework</a></li>
-      <li><a href="#02" data-doc="02-database-setup.md"><span class="num">2.</span> Database Setup &amp; Schemas</a></li>
-      <li><a href="#03" data-doc="03-graphserv-rest-service.md"><span class="num">3.</span> graphserv REST Service</a></li>
-      <li><a href="#04" data-doc="04-mcp-servers.md"><span class="num">4.</span> Building MCP Servers</a></li>
-      <li><a href="#05" data-doc="05-langgraph-agents.md"><span class="num">5.</span> LangGraph Agents</a></li>
-    </ul>
-    <div class="footer">
-      Built on graphserv · Neo4j · LangGraph · Ollama · Qdrant · MySQL
+    <p class="sidebar-brand">Documentation</p>
+    <div class="sidebar-home">
+      <a href="#home" data-route="home">&#8962;&nbsp; Home</a>
     </div>
+    <div id="project-nav"></div>
+    <div class="sidebar-footer">Engineering Documentation Portal</div>
   </nav>
   <main id="content">
-    <p id="loading">Loading documentation…</p>
+    <p style="color:#6e7681;font-style:italic">Loading…</p>
   </main>
 </div>
 
 <script>
-  const DOCS = {
-    "home": null,
-    "01-incident-response-framework.md": "01-incident-response-framework.md",
-    "02-database-setup.md": "02-database-setup.md",
-    "03-graphserv-rest-service.md": "03-graphserv-rest-service.md",
-    "04-mcp-servers.md": "04-mcp-servers.md",
-    "05-langgraph-agents.md": "05-langgraph-agents.md"
-  };
+// ════════════════════════════════════════════════════════════════════════════
+// PROJECT REGISTRY
+//
+// To add a new project, append an entry to this array:
+//
+//   {
+//     id:          "my-project",          // used in URLs: #my-project/01
+//     name:        "My Project",          // sidebar + home page heading
+//     description: "What it does.",       // shown on the home page card
+//     basePath:    "my-project/",         // path prefix relative to index.html
+//                                         // use "" if files are in the same folder
+//     docs: [
+//       { num: "01", file: "01-overview.md", title: "Overview" },
+//     ]
+//   }
+//
+// URL scheme:  #<projectId>/<docNum>           — load a doc
+//              #<projectId>/<docNum>:<anchor>  — load a doc and scroll to heading
+// ════════════════════════════════════════════════════════════════════════════
+const PROJECTS = [
+  {
+    id:          "incident-response",
+    name:        "Incident Response Framework",
+    description: "AI-powered multi-agent system for automated infrastructure incident response — built on graphserv, Neo4j, LangGraph, Ollama, Qdrant, and MySQL.",
+    basePath:    "",   // markdown files are in the same directory as index.html
+    docs: [
+      { num: "01", file: "01-incident-response-framework.md", title: "Framework & Plan" },
+      { num: "02", file: "02-database-setup.md",               title: "Database Setup & Schemas" },
+      { num: "03", file: "03-graphserv-rest-service.md",        title: "graphserv REST Service" },
+      { num: "04", file: "04-mcp-servers.md",                   title: "Building MCP Servers" },
+      { num: "05", file: "05-langgraph-agents.md",              title: "LangGraph Agents" },
+    ]
+  }
+];
 
-  const HOME_MD = `# AI Agentic Incident Response Framework
+// ════════════════════════════════════════════════════════════════════════════
+// SLUGIFY
+//
+// Mirrors marked's internal Slugger algorithm so that the IDs we attach to
+// rendered headings match the anchor fragments used in markdown ToC links.
+//
+// E.g. "3. Supervisor / Orchestrator" → "3-supervisor--orchestrator"
+//      (the slash between two spaces produces two consecutive hyphens)
+// ════════════════════════════════════════════════════════════════════════════
+function slugify(text) {
+  return text
+    .toLowerCase()
+    .trim()
+    .replace(/[\u2000-\u206F\u2E00-\u2E7F\\'!"#$%&()*+,./:;<=>?@[\]^`{|}~]/g, '')
+    .replace(/\s/g, '-');      // each whitespace char → one hyphen (preserves runs)
+}
 
-A multi-agent AI system that automates infrastructure incident response end-to-end — built on **graphserv · Neo4j · LangGraph · Ollama · Qdrant · MySQL**. Every component runs locally via Docker Compose, making the stack a fully self-contained learning project that scales to production patterns.
-
-## Documentation Map
-
-1. **[Incident Response Framework & Plan](01-incident-response-framework.md)** — architecture, goals, technology stack, component design, phased development plan, testing strategy, and Docker deployment.
-2. **[Database Setup, Schemas & Topology](02-database-setup.md)** — installation, verification, and schema creation for Neo4j, MySQL, and Qdrant, plus the full Neo4j topology schema.
-3. **[graphserv RESTful Service](03-graphserv-rest-service.md)** — Go-based REST API wrapping Neo4j: architecture, API reference, Docker, testing, and project layout.
-4. **[Building MCP Servers](04-mcp-servers.md)** — designing and wiring the Graph DB, Mitigation, and Comms MCP servers so agents can call typed tools.
-5. **[Building Agents with LangGraph](05-langgraph-agents.md)** — shared state, Supervisor routing, the six specialist agents, mitigation feedback loop, MySQL checkpointing, and testing.
-
-## Quick Start
-
-1. Provision the databases from the **[Database Setup](02-database-setup.md)** guide.
-2. Start **[graphserv](03-graphserv-rest-service.md)** and verify \`GET /health\` responds.
-3. Stand up the three **[MCP servers](04-mcp-servers.md)** (graph_db, mitigation, comms).
-4. Run the **[LangGraph agent pipeline](05-langgraph-agents.md)** using \`python trigger.py --poll\`.
-5. Watch logs or enable LangSmith tracing to observe the full incident lifecycle.
-
-For a single-file narrative covering the architecture, phased plan, and deployment model, start with the **[Incident Response Framework](01-incident-response-framework.md)** document.`;
-
-  marked.setOptions({
-    gfm: true,
-    breaks: false,
-    highlight: function(code, lang) {
-      if (lang && hljs.getLanguage(lang)) {
-        try { return hljs.highlight(code, { language: lang }).value; } catch (e) {}
+// ════════════════════════════════════════════════════════════════════════════
+// MARKED CONFIGURATION
+//
+// A custom heading renderer that always emits id="…" attributes.
+// Required because marked v7+ removed heading IDs by default.
+// The slugify function above produces the same slugs that the ToC links
+// already reference inside the markdown files.
+// ════════════════════════════════════════════════════════════════════════════
+marked.use({
+  gfm: true,
+  breaks: false,
+  renderer: {
+    heading(tokenOrText, levelArg, rawArg) {
+      // marked v5+  → called with a token object {text, depth, raw, ...}
+      // marked v4   → called with (text, level, raw)
+      let text, depth, rawText;
+      if (tokenOrText !== null && typeof tokenOrText === 'object') {
+        text    = tokenOrText.text;
+        depth   = tokenOrText.depth;
+        rawText = tokenOrText.raw || tokenOrText.text;
+      } else {
+        text    = tokenOrText;
+        depth   = levelArg;
+        rawText = rawArg || tokenOrText;
       }
-      return hljs.highlightAuto(code).value;
+      // Strip the leading "## " markdown syntax that can appear in raw
+      const plain = rawText.replace(/^#{1,6}\s*/, '').replace(/\s*#*\s*$/, '').trim();
+      // Strip any inline HTML tags so the slug is derived from plain text
+      const slug  = slugify(plain.replace(/<[^>]+>/g, ''));
+      return `<h${depth} id="${slug}">${text}</h${depth}>\n`;
     }
+  }
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// STATE
+// ════════════════════════════════════════════════════════════════════════════
+const contentEl    = document.getElementById('content');
+const projectNavEl = document.getElementById('project-nav');
+
+// ════════════════════════════════════════════════════════════════════════════
+// BUILD SIDEBAR
+// ════════════════════════════════════════════════════════════════════════════
+function buildNav() {
+  projectNavEl.innerHTML = '';
+  PROJECTS.forEach(proj => {
+    const section = document.createElement('div');
+    section.className = 'project-section';
+    section.dataset.projectId = proj.id;
+
+    const label = document.createElement('p');
+    label.className = 'project-label';
+    label.textContent = proj.name;
+    section.appendChild(label);
+
+    const ul = document.createElement('ul');
+    proj.docs.forEach(doc => {
+      const li = document.createElement('li');
+      const a  = document.createElement('a');
+      const route = `${proj.id}/${doc.num}`;
+      a.href = '#' + route;
+      a.dataset.route = route;
+      a.innerHTML = `<span class="doc-num">${doc.num}</span>${doc.title}`;
+      a.addEventListener('click', e => { e.preventDefault(); navigate(route); });
+      li.appendChild(a);
+      ul.appendChild(li);
+    });
+    section.appendChild(ul);
+    projectNavEl.appendChild(section);
   });
 
-  const contentEl = document.getElementById("content");
-  const navLinks = document.querySelectorAll("#nav-list a");
+  document.querySelector('[data-route="home"]').addEventListener('click', e => {
+    e.preventDefault();
+    navigate('home');
+  });
+}
 
-  const DOC_NUM_MAP = {
-    "01": "01-incident-response-framework.md",
-    "02": "02-database-setup.md",
-    "03": "03-graphserv-rest-service.md",
-    "04": "04-mcp-servers.md",
-    "05": "05-langgraph-agents.md"
-  };
+function setActive(route) {
+  document.querySelectorAll('.sidebar-home a, .project-section a').forEach(a => {
+    a.classList.toggle('active', a.dataset.route === route);
+  });
+}
 
-  function setActive(docKey) {
-    navLinks.forEach(a => {
-      a.classList.toggle("active", a.dataset.doc === docKey);
-    });
+// ════════════════════════════════════════════════════════════════════════════
+// NAVIGATION
+// ════════════════════════════════════════════════════════════════════════════
+function navigate(route, anchor, pushState = true) {
+  if (pushState) {
+    const hash = '#' + route + (anchor ? ':' + anchor : '');
+    history.pushState({ route, anchor: anchor || null }, '', hash);
   }
-
-  function scrollToAnchor(anchor) {
-    if (!anchor) return;
-    // marked generates IDs for headings; try the anchor directly
-    const target = document.getElementById(anchor);
-    if (target) {
-      target.scrollIntoView({ behavior: "smooth", block: "start" });
-    }
+  if (route === 'home') {
+    showHome();
+    return;
   }
+  const slashIdx = route.indexOf('/');
+  const projId   = slashIdx >= 0 ? route.slice(0, slashIdx) : route;
+  const docNum   = slashIdx >= 0 ? route.slice(slashIdx + 1) : null;
 
-  async function loadDoc(docKey, anchor) {
-    setActive(docKey);
-    contentEl.innerHTML = '<p id="loading">Loading…</p>';
-    try {
-      let md;
-      if (docKey === "home") {
-        md = HOME_MD;
-      } else {
-        const resp = await fetch(docKey, { cache: "no-cache" });
-        if (!resp.ok) throw new Error("HTTP " + resp.status);
-        md = await resp.text();
-      }
-      const html = DOMPurify.sanitize(marked.parse(md));
-      contentEl.innerHTML = html;
-      contentEl.querySelectorAll("pre code").forEach(block => hljs.highlightElement(block));
-      rewriteInternalLinks();
-      if (anchor) {
-        // Small delay so the DOM is fully painted before scrolling
-        setTimeout(() => scrollToAnchor(anchor), 80);
-      } else {
-        window.scrollTo(0, 0);
-      }
-    } catch (err) {
-      contentEl.innerHTML = '<h1>Unable to load document</h1><p>' +
-        'Could not fetch <code>' + docKey + '</code>: ' + err.message + '</p>' +
-        '<p>If you are opening this file directly from disk, browsers block <code>fetch()</code> for local files. ' +
-        'Serve the folder with a simple HTTP server:</p>' +
-        '<pre><code>python3 -m http.server 8000</code></pre>' +
-        '<p>Then open <a href="http://localhost:8000/">http://localhost:8000/</a>. ' +
-        'On GitHub Pages this works automatically.</p>';
-    }
+  const proj = PROJECTS.find(p => p.id === projId);
+  if (!proj) { showHome(); return; }
+
+  if (!docNum) {
+    // Link to just the project — go to its first doc
+    navigate(`${proj.id}/${proj.docs[0].num}`, anchor, false);
+    return;
   }
+  const doc = proj.docs.find(d => d.num === docNum);
+  if (!doc) { showHome(); return; }
 
-  function rewriteInternalLinks() {
-    contentEl.querySelectorAll("a[href]").forEach(a => {
-      const href = a.getAttribute("href");
-      if (!href) return;
+  loadDoc(proj, doc, anchor);
+}
 
-      // In-page anchor links (Table of Contents entries like #1-why-mcp)
-      // Scroll to the target element without touching the doc-level router.
-      if (href.startsWith("#")) {
-        a.addEventListener("click", e => {
-          e.preventDefault();
-          scrollToAnchor(href.slice(1));
-        });
-        return;
-      }
+function routeFromHash() {
+  const raw = window.location.hash.replace(/^#/, '');
+  if (!raw || raw === 'home') { navigate('home', null, false); return; }
 
-      // Cross-document links (e.g. ./04-mcp-servers.md or ./04-mcp-servers.md#section)
-      const clean = href.replace(/^\.\//, "");
-      if (/^\d\d-[\w-]+\.md(#.*)?$/.test(clean)) {
-        const hashIdx = clean.indexOf("#");
-        const file   = hashIdx >= 0 ? clean.slice(0, hashIdx) : clean;
-        const anchor = hashIdx >= 0 ? clean.slice(hashIdx + 1) : null;
-        a.addEventListener("click", e => {
-          e.preventDefault();
-          const num = file.replace(/^(\d\d)-.*$/, "$1");
-          const newHash = "#" + num + (anchor ? ":" + anchor : "");
-          history.pushState({ doc: file, anchor }, "", newHash);
-          loadDoc(file, anchor);
-        });
-      }
-    });
-  }
+  // Format: <route>  or  <route>:<anchor>
+  const colonIdx = raw.indexOf(':');
+  const route  = colonIdx >= 0 ? raw.slice(0, colonIdx) : raw;
+  const anchor = colonIdx >= 0 ? raw.slice(colonIdx + 1) : null;
+  navigate(route, anchor, false);
+}
 
-  function routeFromHash() {
-    const h = window.location.hash.replace(/^#/, "");
-    if (!h || h === "home") { loadDoc("home"); return; }
+// ════════════════════════════════════════════════════════════════════════════
+// HOME PAGE  — auto-generated from the PROJECTS registry
+// ════════════════════════════════════════════════════════════════════════════
+function showHome() {
+  setActive('home');
 
-    // Format: #NN  or  #NN:in-page-anchor
-    const colonIdx = h.indexOf(":");
-    const num    = colonIdx >= 0 ? h.slice(0, colonIdx) : h;
-    const anchor = colonIdx >= 0 ? h.slice(colonIdx + 1) : null;
+  const cards = PROJECTS.map(proj => {
+    const firstRoute = `${proj.id}/${proj.docs[0].num}`;
+    const docList = proj.docs.map(d =>
+      `<li><a href="#${proj.id}/${d.num}" data-route="${proj.id}/${d.num}">${d.num}. ${d.title}</a></li>`
+    ).join('');
+    return `
+      <div class="project-card">
+        <h3><a href="#${firstRoute}" data-route="${firstRoute}">${proj.name}</a></h3>
+        <p>${proj.description}</p>
+        <ul>${docList}</ul>
+      </div>`;
+  }).join('');
 
-    if (DOC_NUM_MAP[num]) {
-      loadDoc(DOC_NUM_MAP[num], anchor);
+  contentEl.innerHTML = `
+    <h1>Engineering Documentation</h1>
+    <p>Select a project from the sidebar or jump straight to a document below.</p>
+    <div class="project-cards">${cards}</div>`;
+
+  contentEl.querySelectorAll('a[data-route]').forEach(a => {
+    a.addEventListener('click', e => { e.preventDefault(); navigate(a.dataset.route); });
+  });
+
+  window.scrollTo(0, 0);
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// LOAD & RENDER A DOCUMENT
+// ════════════════════════════════════════════════════════════════════════════
+async function loadDoc(proj, doc, anchor) {
+  const route = `${proj.id}/${doc.num}`;
+  setActive(route);
+  contentEl.innerHTML = '<p style="color:#6e7681;font-style:italic">Loading…</p>';
+
+  try {
+    const path = proj.basePath + doc.file;
+    const resp = await fetch(path, { cache: 'no-cache' });
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const md   = await resp.text();
+    const html = DOMPurify.sanitize(marked.parse(md));
+    contentEl.innerHTML = html;
+    contentEl.querySelectorAll('pre code').forEach(b => hljs.highlightElement(b));
+
+    // Ensure every heading has an id (fallback if the renderer didn't emit one).
+    // This runs after innerHTML is set so h.textContent is the visible text.
+    ensureHeadingIds();
+
+    // Intercept links inside the rendered document.
+    rewriteLinks(proj);
+
+    if (anchor) {
+      setTimeout(() => scrollToAnchor(anchor), 80);
     } else {
-      loadDoc("home");
+      window.scrollTo(0, 0);
     }
+  } catch (err) {
+    contentEl.innerHTML =
+      '<h1>Unable to load document</h1>' +
+      '<p>Could not fetch <code>' + doc.file + '</code>: ' + err.message + '</p>' +
+      '<p>If you opened this file directly from disk, browsers block <code>fetch()</code> for ' +
+      'local files. Serve the folder with a local HTTP server instead:</p>' +
+      '<pre><code>python3 -m http.server 8000</code></pre>' +
+      '<p>Then open <a href="http://localhost:8000/">http://localhost:8000/</a>. ' +
+      'On GitHub Pages this works automatically.</p>';
   }
+}
 
-  navLinks.forEach(a => {
-    a.addEventListener("click", e => {
-      e.preventDefault();
-      const doc = a.dataset.doc;
-      const hash = doc === "home" ? "#home" : "#" + doc.substring(0, 2);
-      history.pushState({ doc }, "", hash);
-      loadDoc(doc);
-    });
+// ════════════════════════════════════════════════════════════════════════════
+// ENSURE HEADING IDs
+//
+// Post-processing fallback: if any heading is missing an id (can happen with
+// certain marked versions), derive one from the heading's visible text using
+// the same slugify function, so it matches the ToC anchor links.
+// ════════════════════════════════════════════════════════════════════════════
+function ensureHeadingIds() {
+  const seen = {};
+  contentEl.querySelectorAll('h1, h2, h3, h4, h5, h6').forEach(h => {
+    if (!h.id) {
+      let slug = slugify(h.textContent);
+      // Deduplicate (marked's Slugger also de-dupes with a counter suffix)
+      if (seen[slug]) {
+        slug = slug + '-' + seen[slug];
+        seen[slug] = (seen[slug] || 0) + 1;
+      } else {
+        seen[slug] = 1;
+      }
+      h.id = slug;
+    }
   });
+}
 
-  window.addEventListener("popstate", routeFromHash);
-  routeFromHash();
+// ════════════════════════════════════════════════════════════════════════════
+// SCROLL TO ANCHOR
+// ════════════════════════════════════════════════════════════════════════════
+function scrollToAnchor(anchor) {
+  if (!anchor) return;
+  const target = document.getElementById(anchor);
+  if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// REWRITE LINKS in rendered markdown
+//
+// Three cases:
+//   1. Pure anchor  (#section-name)           → scroll only, never re-route
+//   2. Same-project cross-doc link             → navigate() to that doc
+//      (e.g. ./04-mcp-servers.md or ./04-mcp-servers.md#anchor)
+//   3. External link (http/https)              → open in new tab
+// ════════════════════════════════════════════════════════════════════════════
+function rewriteLinks(currentProj) {
+  contentEl.querySelectorAll('a[href]').forEach(a => {
+    const href = a.getAttribute('href');
+    if (!href) return;
+
+    // Case 1: in-page anchor link (Table of Contents entries)
+    if (href.startsWith('#')) {
+      a.addEventListener('click', e => {
+        e.preventDefault();
+        scrollToAnchor(href.slice(1));
+      });
+      return;
+    }
+
+    // Case 2: cross-doc markdown link (relative, within the same project)
+    const clean = href.replace(/^\.\//, '');
+    if (/^[\w-]+\.md(#.*)?$/.test(clean)) {
+      const hashIdx = clean.indexOf('#');
+      const file    = hashIdx >= 0 ? clean.slice(0, hashIdx) : clean;
+      const anchor  = hashIdx >= 0 ? clean.slice(hashIdx + 1) : null;
+      const doc     = currentProj.docs.find(d => d.file === file);
+      if (doc) {
+        const route = `${currentProj.id}/${doc.num}`;
+        a.addEventListener('click', e => {
+          e.preventDefault();
+          navigate(route, anchor);
+        });
+      }
+      return;
+    }
+
+    // Case 3: external link
+    if (/^https?:\/\//.test(href)) {
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+    }
+  });
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// BOOT
+// ════════════════════════════════════════════════════════════════════════════
+buildNav();
+window.addEventListener('popstate', () => routeFromHash());
+routeFromHash();
 </script>
 </body>
 </html>
