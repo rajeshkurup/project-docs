@@ -195,6 +195,7 @@
     <p class="sidebar-brand">Documentation</p>
     <div class="sidebar-home">
       <a href="#home" data-route="home">&#8962;&nbsp; Home</a>
+      <a href="#repositories/06" data-route="repositories/06">&#128203;&nbsp; Changelog</a>
     </div>
     <div id="project-nav"></div>
     <div class="sidebar-footer">Engineering Documentation Portal</div>
@@ -382,9 +383,12 @@ function buildNav() {
     projectNavEl.appendChild(section);
   });
 
-  document.querySelector('[data-route="home"]').addEventListener('click', e => {
-    e.preventDefault();
-    navigate('home');
+  // Wire all top-level sidebar links (Home, Changelog, any future additions)
+  document.querySelectorAll('.sidebar-home a[data-route]').forEach(a => {
+    a.addEventListener('click', e => {
+      e.preventDefault();
+      navigate(a.dataset.route);
+    });
   });
 }
 
