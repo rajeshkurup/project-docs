@@ -165,96 +165,209 @@ if __name__ == "__main__":
 
 ## 4. Mitigation Services MCP Server
 
+**Repository:** `mitigationmcpserv/`
 **Location:** `mcp_servers/mitigation/server.py`
+**Env vars:** `QDRANT_URL`, `OLLAMA_BASE_URL`, `CONFIDENCE_THRESHOLD`
 
-This server provides **semantic search over mitigation workflows** (via Qdrant) and a **stub execution mechanism** for the steps of a chosen workflow. In production you would replace the stubs with real API calls; for the local project, workflow execution logs the action and updates the incident ticket status through the Graph DB MCP.
+This server provides **semantic search over mitigation workflows** (via Qdrant) and a **stub execution mechanism** for the steps of a chosen workflow. In production you would replace the stubs with real API calls; for the local project, workflow execution logs the action to `logs/mitigation_runs.log` and tracks run state in memory.
 
 ### 4.1 Tool Catalogue
 
 | Tool | Description |
 |------|-------------|
-| `search_mitigation_workflows` | Semantic search in Qdrant — returns top-k workflows with steps and confidence scores |
-| `execute_mitigation_step` | Stub executor — logs the action and updates the incident ticket via the Graph DB MCP |
-| `check_mitigation_status` | Returns the current execution status of a workflow run |
-| `store_mitigation_feedback` | Stores feedback (did it work?) back into the Qdrant payload for learning |
+| `search_mitigation_workflows` | Semantic search in Qdrant — returns top-k workflows with steps and similarity scores. Falls back to 5 built-in mock workflows when Qdrant is empty |
+| `execute_mitigation_step` | Stub executor — registers the step in the in-memory run registry and writes a JSON log line to `logs/mitigation_runs.log` |
+| `check_mitigation_status` | Returns current execution status of a run: `steps_completed`, `steps_total`, `status` |
+| `store_mitigation_feedback` | Embeds and upserts a feedback episode to the Qdrant `feedback_history` collection; returns `{"qdrant_stored": true}` |
 
 ### 4.2 Search Flow
 
 1. The Incident Mitigator agent passes the root-cause summary as the query string.
 2. `search_mitigation_workflows` calls `OllamaEmbeddings` (`nomic-embed-text`, 768-dim) to embed the query.
 3. The server runs `client.search(collection_name="mitigation_workflows", query_vector=…)` with optional payload filters on `trigger_type`, `service_type`, and `severity`.
-4. Each hit returns the stored `steps_json`, a workflow name, and a cosine similarity score.
-5. The agent checks the top score against `CONFIDENCE_THRESHOLD` (default `0.75`). Below the threshold, it falls back to the feedback loop described in the [LangGraph Agents](./05-langgraph-agents.md) document.
+4. If Qdrant returns results, each hit is returned with its `steps`, workflow name, and cosine similarity score (`source: "qdrant"`).
+5. If the collection is empty or Qdrant is unavailable, the server returns 5 built-in mock workflows (`source: "mock"`) so the pipeline keeps running during development.
+6. The agent checks the top score against `CONFIDENCE_THRESHOLD` (default `0.75`). Below the threshold, it falls back to the feedback loop described in the [LangGraph Agents](./05-langgraph-agents.md) document.
 
 ### 4.3 Stub Execution Model
 
 Each mitigation step is executed through `execute_mitigation_step`, which:
 
-- Reads the step's `kind` (`restart_service`, `scale_out`, `rollback_change`, …) from the workflow JSON.
-- Writes a human-readable log line to `logs/mitigation_runs.log`.
-- Optionally calls back into the Graph DB MCP to update the incident ticket status via `update_node_status`.
+- Registers the step in an **in-memory run registry** (`_RUNS` dict keyed by `run_id`).
+- Writes a structured JSON log line to `logs/mitigation_runs.log`.
+- Returns `{"status": "executed", "run_id": "...", "step_index": N, "stub": true}`.
 
-For real deployments, each stub is replaced by a narrow adapter to the corresponding platform (Kubernetes, Nomad, your CI/CD system, etc.).
+`check_mitigation_status` reads the same registry and returns `steps_completed` / `steps_total` so the mitigator can verify the full workflow ran.
+
+`store_mitigation_feedback` embeds the combined query text (hypothesis + node info) using Ollama and upserts a point to the `feedback_history` Qdrant collection with the outcome, confidence, and iteration metadata.
+
+For real deployments, the stub in `execute_mitigation_step` is replaced by a narrow adapter to the corresponding platform (Kubernetes, Nomad, your CI/CD system, etc.).
 
 ## 5. Communication MCP Server
 
+**Repository:** `commsmcpserv/`
 **Location:** `mcp_servers/comms/server.py`
+**Env vars:** `COMMS_LOG_DIR` (default `logs`)
 
-The Communication MCP server provides **unified communication tools** for the Incident Communicator agent. For the local project every channel writes to a log file and prints to stdout so you can see exactly what would have been sent. The stubs are swapped for real SMTP, Slack webhooks, Teams webhooks, Twilio, or PagerDuty calls when you're ready.
+The Communication MCP server provides **unified communication tools** for the Incident Communicator agent. For the local project every channel writes a structured JSON line to a log file and returns a stub delivery ID. The stubs are swapped for real SMTP, Slack webhooks, Teams webhooks, Twilio, or PagerDuty calls when you're ready.
 
 ### 5.1 Tool Catalogue
 
-| Tool | Channel | Local Stub |
-|------|---------|------------|
-| `send_email` | Email (SMTP) | Writes to `logs/email_outbox.log` |
-| `send_slack` | Slack webhook | Writes to `logs/slack_outbox.log` |
-| `send_teams` | MS Teams webhook | Writes to `logs/teams_outbox.log` |
-| `send_sms` | SMS (Twilio) | Writes to `logs/sms_outbox.log` |
-| `page_oncall` | PagerDuty | Writes to `logs/pagerduty_outbox.log` |
-| `update_ticket_comms` | Incident ticket | Calls the Graph DB MCP to PATCH the ticket |
+| Tool | Channel | Local Stub | Log file |
+|------|---------|------------|----------|
+| `send_email` | Email (SMTP) | Appends JSON line, returns `EMAIL-XXXXXXXX` | `logs/email_outbox.log` |
+| `send_slack` | Slack webhook | Appends JSON line, returns `SLACK-XXXXXXXX` | `logs/slack_outbox.log` |
+| `send_teams` | MS Teams webhook | Appends JSON line, returns `TEAMS-XXXXXXXX` | `logs/teams_outbox.log` |
+| `send_sms` | SMS (Twilio) | Appends JSON line, returns `SMS-XXXXXXXX` | `logs/sms_outbox.log` |
+| `page_oncall` | PagerDuty | Appends JSON line, returns `PD-XXXXXXXX` | `logs/pagerduty_outbox.log` |
+| `update_ticket_comms` | Incident ticket | Appends JSON record of all channels dispatched | `logs/ticket_comms.log` |
+
+Each stub response includes `{"status": "sent", "stub": true, "message_id": "<CHANNEL-XXXXXXXX>", "sent_at": "<ISO timestamp>"}`.
 
 ### 5.2 Channel Selection
 
-The Incident Communicator decides which channels to use based on severity, time of day, and escalation rules. Typical defaults:
+The Incident Communicator selects channels based on severity:
 
-- **SEV1** — `page_oncall` + `send_slack` + `send_email`
-- **SEV2** — `send_slack` + `send_teams` + `send_email`
-- **SEV3** — `send_email` + `send_teams`
+| Severity | Channels dispatched |
+|----------|---------------------|
+| SEV1 | `page_oncall` → `send_slack` → `send_email` |
+| SEV2 | `send_slack` → `send_teams` → `send_email` |
+| SEV3 | `send_email` → `send_teams` |
+| SEV4 | `send_email` |
 
-Each tool accepts a `subject`/`title`, a `body` (pre-rendered by the LLM), and optional metadata such as `recipients` or `severity`. The stubs simply append structured JSON lines to the corresponding log file so that integration tests can assert what was sent.
+After dispatching all channels, the agent calls `update_ticket_comms` with the list of channels that succeeded. If an individual channel fails, the remaining channels still run — partial dispatch is recorded rather than an all-or-nothing abort.
+
+Each channel tool accepts:
+
+| Parameter | Tools |
+|-----------|-------|
+| `incident_id`, `severity`, `subject`, `body` | `send_email`, `send_slack`, `send_teams`, `send_sms` |
+| `incident_id`, `severity`, `title`, `body` | `page_oncall` |
+| `incident_id`, `channels_notified` | `update_ticket_comms` |
+
+The stubs append structured JSON lines to the corresponding log file so that integration tests can assert exactly what was sent and to which channels.
 
 ## 6. Wiring MCP Servers into LangGraph
 
-The agent framework spawns every MCP server as a subprocess and wraps its tools using `langchain-mcp-adapters`:
+The agent framework spawns every MCP server as a subprocess and wraps its tools using `langchain-mcp-adapters`. As of `langchain-mcp-adapters 0.2.x`, `MultiServerMCPClient` is **not** a context manager — call `get_tools()` directly without `await client.connect()`:
 
 ```python
+# graph/mcp_client.py
 from langchain_mcp_adapters.client import MultiServerMCPClient
+from autoincrespagent.config import settings
 
-client = MultiServerMCPClient({
-    "graph_db":   {"command": "python", "args": ["-m", "mcp_servers.graph_db.server"],   "transport": "stdio"},
-    "mitigation": {"command": "python", "args": ["-m", "mcp_servers.mitigation.server"], "transport": "stdio"},
-    "comms":      {"command": "python", "args": ["-m", "mcp_servers.comms.server"],      "transport": "stdio"},
-})
-
-await client.connect()
-all_tools = await client.get_tools()   # LangChain-compatible Tool objects
+def build_mcp_client() -> MultiServerMCPClient:
+    return MultiServerMCPClient({
+        "graph_db": {
+            "command": "python",
+            "args": ["-m", "mcp_servers.graph_db.server"],
+            "transport": "stdio",
+            "cwd": settings.graphmcpserv_path,       # ← required: sets sys.path for the subprocess
+            "env": {"GRAPHSERV_URL": settings.graphserv_url, "GRAPHSERV_TIMEOUT": "10.0"},
+        },
+        "mitigation": {
+            "command": "python",
+            "args": ["-m", "mcp_servers.mitigation.server"],
+            "transport": "stdio",
+            "cwd": settings.mitigationmcpserv_path,  # ← required
+            "env": {
+                "QDRANT_URL": f"http://{settings.qdrant_host}:{settings.qdrant_port}",
+                "OLLAMA_BASE_URL": settings.ollama_base_url,
+                "CONFIDENCE_THRESHOLD": str(settings.confidence_threshold),
+            },
+        },
+        "comms": {
+            "command": "python",
+            "args": ["-m", "mcp_servers.comms.server"],
+            "transport": "stdio",
+            "cwd": settings.commsmcpserv_path,        # ← required
+            "env": {"COMMS_LOG_DIR": "logs"},
+        },
+    })
 ```
 
-Each agent then picks the tools it needs:
+> **Why `cwd` is required:** all three MCP packages share the same `mcp_servers.*` top-level namespace. Without `cwd`, Python binds the namespace to the first package it finds and the other two become invisible. Setting `cwd` to each server's own source directory adds that directory to `sys.path` inside the subprocess, so each server resolves its own `mcp_servers` package independently.
+
+Usage in `graph/workflow.py`:
 
 ```python
-graph_tools      = [t for t in all_tools if t.name.startswith(("list_", "get_", "root_cause", "blast_"))]
-mitigation_tools = [t for t in all_tools if "mitigation" in t.name]
-comms_tools      = [t for t in all_tools if t.name.startswith(("send_", "page_"))]
+client    = build_mcp_client()
+all_tools = await client.get_tools()   # LangChain-compatible Tool objects
 
-llm = get_llm("root_cause_finder").bind_tools(graph_tools)
+_GRAPH_DB_TOOL_NAMES    = {"list_anomalies", "get_node", "root_cause_analysis",
+                            "blast_radius", "get_relationships",
+                            "create_incident_ticket", "link_incident_to_node",
+                            "get_rca_tickets", "get_change_tickets", "update_node_status"}
+_MITIGATION_TOOL_NAMES  = {"search_mitigation_workflows", "execute_mitigation_step",
+                            "check_mitigation_status", "store_mitigation_feedback"}
+_COMMS_TOOL_NAMES       = {"send_email", "send_slack", "send_teams",
+                            "send_sms", "page_oncall", "update_ticket_comms"}
+
+graph_tools      = [t for t in all_tools if t.name in _GRAPH_DB_TOOL_NAMES]
+mitigation_tools = [t for t in all_tools if t.name in _MITIGATION_TOOL_NAMES]
+comms_tools      = [t for t in all_tools if t.name in _COMMS_TOOL_NAMES]
+```
+
+Each agent factory then receives only the tools it needs:
+
+```python
+make_incident_mitigator(qdrant_client=qdrant_client, embeddings=embeddings,
+                        mitigation_tools=mitigation_tools)
+make_incident_communicator(qdrant_client=qdrant_client, embeddings=embeddings,
+                           comms_tools=comms_tools)
+```
+
+### Tool response unwrapping
+
+`langchain-mcp-adapters` returns `list[TextContent]` from `tool.ainvoke()`, not a plain string. Both `incident_mitigator` and `incident_communicator` unwrap this before JSON-parsing:
+
+```python
+async def _call_tool(tools, name, args):
+    raw = await tool.ainvoke(args)
+    if isinstance(raw, list):
+        first = raw[0]
+        raw = first.text if hasattr(first, "text") else (
+            first.get("text", str(first)) if isinstance(first, dict) else str(first)
+        )
+    return json.loads(raw) if isinstance(raw, str) else raw
 ```
 
 Because MCP tools look identical to any other LangChain tool, the LLM's tool-calling machinery works without changes.
 
 ## 7. Testing MCP Servers
 
-### 7.1 Unit Tests
+### 7.1 Unit Tests for Agent MCP Integration
+
+Agent-level unit tests mock MCP tools as `AsyncMock` objects — no running MCP servers required:
+
+```python
+def _mock_mcp_tool(name: str, response: dict):
+    tool = MagicMock()
+    tool.name = name
+    tool.ainvoke = AsyncMock(return_value=json.dumps(response))
+    return tool
+```
+
+The tool list is then injected into the agent factory:
+
+```python
+agent = make_incident_mitigator(mitigation_tools=_mock_mitigation_tools())
+agent = make_incident_communicator(comms_tools=_all_comms_tools())
+```
+
+Assertions use the dict directly (not `json.loads`) because `ainvoke` is called with a dict, not a JSON string:
+
+```python
+args = tool.ainvoke.call_args[0][0]   # already a dict
+assert args["incident_id"] == "INC-TEST"
+```
+
+| Test File | Tests | What's covered |
+|-----------|-------|----------------|
+| `tests/unit/test_incident_mitigator.py` | 31 | MCP tool dispatch, step execution, status check, feedback storage via MCP, fallback to direct Qdrant |
+| `tests/unit/test_incident_communicator.py` | 34 | Channel selection by severity, tool arguments, `communications_sent` state, graceful degradation, Qdrant upsert |
+
+### 7.2 MCP Server Unit Tests (within each server repo)
 
 - Mock backends with `httpx` request mocking (`respx`) or pytest `monkeypatch`.
 - Assert that each tool translates arguments into the correct HTTP call / Qdrant query / log line.
@@ -262,20 +375,19 @@ Because MCP tools look identical to any other LangChain tool, the LLM's tool-cal
 
 | Test Target | File | Focus |
 |-------------|------|-------|
-| Graph DB MCP | `tests/test_mcp_graph.py` | Every tool calls the correct graphserv endpoint with correct params |
-| Mitigation MCP | `tests/test_mcp_mitigation.py` | Qdrant search returns top-k with expected payloads; stub execution writes logs |
-| Comms MCP | `tests/test_mcp_comms.py` | Each channel stub emits a parseable log line |
+| Graph DB MCP | `graphmcpserv/tests/test_mcp_graph.py` | Every tool calls the correct graphserv endpoint with correct params |
+| Mitigation MCP | `mitigationmcpserv/tests/test_mcp_mitigation.py` | Qdrant search, mock workflow fallback, stub execution writes logs, `source` field |
+| Comms MCP | `commsmcpserv/tests/test_mcp_comms.py` | Each channel stub emits a parseable log line with correct stub ID format |
 
-### 7.2 Integration Tests
+### 7.3 Integration Tests
 
 Integration tests spawn the MCP servers as real subprocesses and call them from LangChain:
 
 ```python
-client = MultiServerMCPClient({"graph_db": {...}})
-await client.connect()
+client = build_mcp_client()
 tools = await client.get_tools()
-anomalies = await [t for t in tools if t.name == "list_anomalies"][0].ainvoke({"status": "open", "limit": 5})
-assert "ANOM-" in anomalies
+result = await [t for t in tools if t.name == "list_anomalies"][0].ainvoke({"status": "open", "limit": 5})
+assert "ANOM-" in result
 ```
 
 Combined with the integration fixtures described in the [Incident Response Framework](./01-incident-response-framework.md#7-testing-strategy) document, this exercises the full data-plane path from agent → MCP → graphserv → Neo4j.

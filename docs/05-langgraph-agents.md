@@ -60,7 +60,7 @@ class AgentState(TypedDict):
     root_causes: List[dict]             # set by Root Cause Finder
     mitigation_workflows: List[dict]    # set by Root Cause Finder (pre-fetched)
     mitigation_confidence: float        # drives feedback loop
-    communications_sent: List[dict]     # reserved for future use
+    communications_sent: List[dict]     # appended by communicator: {event, incident_id, channels, sent_at}
     incident_summary: Optional[str]     # set by Incident Summarizer
 
     # ── LangGraph message history ─────────────────────────────────────
@@ -71,7 +71,7 @@ class AgentState(TypedDict):
 
     # ── Communication routing ─────────────────────────────────────────
     communication_event: Optional[str]  # "incident_detected" | "root_cause_found" | "mitigation_complete"
-    next_phase: Optional[str]           # phase the communicator advances to after printing
+    next_phase: Optional[str]           # phase the communicator advances to after dispatching
 ```
 
 Key conventions:
@@ -227,6 +227,7 @@ async def incident_detector(state: AgentState) -> dict:
 
 **File:** `agents/incident_communicator.py`
 **Model:** none (deterministic — no LLM call)
+**MCP tools:** `send_email`, `send_slack`, `send_teams`, `send_sms`, `page_oncall`, `update_ticket_comms` (via commsmcpserv)
 **Qdrant writes:** `incident_summaries` (partial upsert, deterministic point ID)
 
 Called after each of three events: `incident_detected`, `root_cause_found`, `mitigation_complete`.
@@ -234,26 +235,53 @@ Called after each of three events: `incident_detected`, `root_cause_found`, `mit
 **Logic:**
 
 1. Reads `communication_event` and `next_phase` from state.
-2. Prints a formatted banner to stdout:
+2. Selects communication channels based on `severity`:
 
-| `communication_event` | Banner |
+| Severity | Channels |
 |---|---|
-| `incident_detected` | 🚨 INCIDENT DECLARED — ID, severity, anomaly list, reason, timestamp |
-| `root_cause_found` | 🔍 ROOT CAUSE IDENTIFIED — top hypothesis, confidence, workflow count |
-| `mitigation_complete` | 🔧 MITIGATION EXECUTED — workflow applied, steps, confidence score |
+| SEV1 | `page_oncall` → `send_slack` → `send_email` |
+| SEV2 | `send_slack` → `send_teams` → `send_email` |
+| SEV3 | `send_email` → `send_teams` |
+| SEV4 | `send_email` |
 
-3. Upserts a rolling partial summary to Qdrant `incident_summaries` (best-effort, never blocks).
-4. Returns `phase=next_phase`, clears `communication_event` and `next_phase`.
+3. Builds a notification payload (`subject`, `title`, `body`) tailored to the `communication_event`:
+
+| `communication_event` | Content |
+|---|---|
+| `incident_detected` | Severity, incident ID, anomaly count, timestamp |
+| `root_cause_found` | Top hypothesis, confidence, number of workflows matched |
+| `mitigation_complete` | Workflow applied, steps executed, confidence score |
+
+4. Dispatches to each channel via the commsmcpserv MCP tools. Channels that fail are skipped; the `dispatched` list records only successful ones.
+5. Calls `update_ticket_comms` with the `channels_notified` list.
+6. Appends `{event, incident_id, channels, sent_at}` to `communications_sent` in state.
+7. Upserts a rolling partial summary to Qdrant `incident_summaries` (best-effort, never blocks).
+8. Returns `phase=next_phase`, clears `communication_event` and `next_phase`.
+
+**Graceful degradation:** if `comms_tools` is empty (MCP not wired), the agent falls back to printing banners to stdout — the pipeline never stops due to missing communication infrastructure.
 
 **Point ID strategy:** `uuid5(NAMESPACE_DNS, "incident-summary:<incident_id>")` — stable across all three calls and the final summarizer upsert, so each call updates the same Qdrant point rather than creating duplicates.
 
 ```python
-def make_incident_communicator(qdrant_client=None, embeddings=None):
+def make_incident_communicator(qdrant_client=None, embeddings=None, comms_tools=None):
+    _tools = comms_tools or []
+
     async def incident_communicator(state: AgentState) -> dict:
         event      = state.get("communication_event", "unknown")
         next_phase = state.get("next_phase", "done")
+        severity   = state.get("severity", "SEV4")
 
-        # print banner based on event type ...
+        channels  = _SEVERITY_CHANNELS.get(severity, ["send_email"])
+        notif     = _build_notification(event, state)
+        dispatched = []
+
+        for channel in channels:
+            result = await _call_tool(_tools, channel, {...})
+            if result and result.get("status") == "sent":
+                dispatched.append(channel)
+
+        await _call_tool(_tools, "update_ticket_comms",
+                         {"incident_id": incident_id, "channels_notified": dispatched})
 
         if qdrant_client and embeddings:
             await _upsert_summary(qdrant_client, embeddings, state, event)
@@ -262,7 +290,8 @@ def make_incident_communicator(qdrant_client=None, embeddings=None):
             "phase": next_phase,
             "communication_event": None,
             "next_phase": None,
-            "messages": [AIMessage(f"[{event}] communicated. Advancing to {next_phase}.")],
+            "communications_sent": prev_sent + [{"event": event, "channels": dispatched, ...}],
+            "messages": [AIMessage(...)],
         }
     return incident_communicator
 ```
@@ -327,14 +356,29 @@ When entered via `phase="feedback"`:
 ## 8. Incident Mitigator and the Feedback Loop
 
 **File:** `agents/incident_mitigator.py`
-**Model:** none (mock — prints to stdout, simulates execution)
-**Qdrant writes:** `feedback_history`
+**Model:** none (deterministic — no LLM call)
+**MCP tools:** `execute_mitigation_step`, `check_mitigation_status`, `store_mitigation_feedback` (via mitigationmcpserv)
+**Qdrant writes:** `feedback_history` (via MCP or direct fallback)
 
 ### Confidence calculation
 
 - If workflows were found: `confidence = top_workflow["score"]` (cosine similarity from Qdrant search)
 - If no workflows but root causes exist: `confidence = max(rc["confidence"] for rc in root_causes)`
 - Otherwise: `confidence = 0.0`
+
+### MCP execution flow
+
+When `mitigation_tools` are wired, the mitigator executes the top-ranked workflow step-by-step via mitigationmcpserv:
+
+1. A unique `run_id` (UUID4) is generated for the execution run.
+2. Each step of the top workflow is submitted to `execute_mitigation_step` with `{incident_id, workflow_id, step_index, step_description, run_id}`.
+3. After all steps, `check_mitigation_status` is called with `{run_id}` to verify `steps_completed / steps_total`.
+4. If `execute_mitigation_step` is unavailable, the agent falls back to printing steps to stdout (display-only mode).
+
+### Feedback storage priority
+
+1. **MCP first** — calls `store_mitigation_feedback` via mitigationmcpserv, which embeds the query text and upserts to Qdrant `feedback_history`. Returns `{"qdrant_stored": true}` on success.
+2. **Direct Qdrant fallback** — if MCP returns `qdrant_stored=false` or the tool is unavailable, the mitigator writes directly to Qdrant using the injected `qdrant_client` and `embeddings`.
 
 ### Decision logic
 
@@ -343,10 +387,8 @@ threshold = settings.confidence_threshold    # default 0.75
 max_iter  = settings.max_feedback_iterations # default 3
 
 if confidence < threshold and feedback_iteration < max_iter:
-    # Save failed attempt so future runs avoid this dead end
-    await _save_feedback(qdrant_client, embeddings, state,
-                         outcome="low_confidence", confidence=confidence,
-                         feedback_msg=feedback_msg)
+    # Store failed attempt via MCP → Qdrant feedback_history
+    await _store_feedback("low_confidence", notes=feedback_msg)
     return {
         "phase": "feedback",
         "feedback_iteration": feedback_iteration + 1,
@@ -357,8 +399,7 @@ if confidence < threshold and feedback_iteration < max_iter:
 # Resolved (or first-pass success)
 if feedback_iteration > 0:
     # Loop was used — record what ultimately worked
-    await _save_feedback(qdrant_client, embeddings, state,
-                         outcome="resolved", confidence=confidence)
+    await _store_feedback("resolved")
 
 return {
     "phase": "communicate",
@@ -389,7 +430,7 @@ Each feedback episode is written as a **new point** (random UUID) in `feedback_h
 }
 ```
 
-### Mock execution output
+### Execution output (with MCP tools wired)
 
 ```
 ────────────────────────────────────────────────────────────────────────
@@ -410,10 +451,14 @@ Each feedback episode is written as a **new point** (random UUID) in `feedback_h
 
 [CONFIDENCE]  0.87  (threshold: 0.75)
 
-[MOCK EXECUTION — top workflow]
-  ✓ step 1: Confirm active connection count  [simulated OK]
-  ✓ step 2: Restart pgBouncer               [simulated OK]
+[EXECUTING — WF-001: Restart DB Connection Pool]
+  step 1: Confirm active connection count via DB metrics  [executed]
+  step 2: Restart pgBouncer (pgBouncer reload)            [executed]
+
+  Run <run_id>: 2/2 steps completed
 ```
+
+When MCP tools are not wired (`mitigation_tools=[]`), the steps are printed with `(MCP unavailable — display only)` instead.
 
 ---
 
@@ -511,21 +556,37 @@ from autoincrespagent.agents.incident_mitigator import make_incident_mitigator
 from autoincrespagent.agents.incident_summarizer import make_incident_summarizer
 from autoincrespagent.vector.qdrant_search import build_qdrant_client, build_embeddings
 
+_GRAPH_DB_TOOL_NAMES   = {"list_anomalies", "get_node", "root_cause_analysis",
+                           "blast_radius", "get_relationships",
+                           "create_incident_ticket", "link_incident_to_node",
+                           "get_rca_tickets", "get_change_tickets", "update_node_status"}
+_MITIGATION_TOOL_NAMES = {"search_mitigation_workflows", "execute_mitigation_step",
+                           "check_mitigation_status", "store_mitigation_feedback"}
+_COMMS_TOOL_NAMES      = {"send_email", "send_slack", "send_teams",
+                           "send_sms", "page_oncall", "update_ticket_comms"}
+
 def build_graph(all_tools: list, checkpointer=None):
-    graph_tools    = [t for t in all_tools if t.name in _GRAPH_DB_TOOL_NAMES]
-    qdrant_client  = build_qdrant_client()   # graceful fallback to None if unavailable
-    embeddings     = build_embeddings()
+    graph_tools      = [t for t in all_tools if t.name in _GRAPH_DB_TOOL_NAMES]
+    mitigation_tools = [t for t in all_tools if t.name in _MITIGATION_TOOL_NAMES]
+    comms_tools      = [t for t in all_tools if t.name in _COMMS_TOOL_NAMES]
+    qdrant_client    = build_qdrant_client()   # graceful fallback to None if unavailable
+    embeddings       = build_embeddings()
 
     builder = StateGraph(AgentState)
 
     builder.add_node("incident_detector",
                      make_incident_detector(graph_tools))
     builder.add_node("incident_communicator",
-                     make_incident_communicator(qdrant_client=qdrant_client, embeddings=embeddings))
+                     make_incident_communicator(qdrant_client=qdrant_client,
+                                                embeddings=embeddings,
+                                                comms_tools=comms_tools))
     builder.add_node("root_cause_finder",
-                     make_root_cause_finder(graph_tools, qdrant_client=qdrant_client, embeddings=embeddings))
+                     make_root_cause_finder(graph_tools, qdrant_client=qdrant_client,
+                                            embeddings=embeddings))
     builder.add_node("incident_mitigator",
-                     make_incident_mitigator(qdrant_client=qdrant_client, embeddings=embeddings))
+                     make_incident_mitigator(qdrant_client=qdrant_client,
+                                             embeddings=embeddings,
+                                             mitigation_tools=mitigation_tools))
     builder.add_node("incident_summarizer",
                      make_incident_summarizer(qdrant_client=qdrant_client, embeddings=embeddings))
 
@@ -659,10 +720,10 @@ pytest tests/unit/ -v
 | `test_supervisor.py` | 12 | All phase → node routing; unknown/empty/missing phase → END |
 | `test_detector.py` | 18 | No anomalies, no incident, incident declared, MCP failures, LLM errors |
 | `test_root_cause_finder.py` | 17 | Factory validation, graph traversal, 5-collection Qdrant search, feedback pass |
-| `test_incident_mitigator.py` | 19 | Confidence routing, feedback trigger, max-iterations cap, Qdrant persistence |
-| `test_incident_communicator.py` | 11 | All 3 event banners, next_phase routing, Qdrant upsert + failure tolerance |
+| `test_incident_mitigator.py` | 31 | MCP tool dispatch, step execution, status check, feedback via MCP, direct Qdrant fallback, confidence routing, max-iterations cap |
+| `test_incident_communicator.py` | 34 | Channel selection by severity, tool argument correctness, `communications_sent` state, graceful degradation (no tools), Qdrant upsert |
 | `test_incident_summarizer.py` | 12 | Summary content, Qdrant persistence, deterministic point ID matches communicator |
-| **Total** | **89** | All offline, < 1 second |
+| **Total** | **124** | All offline, < 1 second |
 
 ### Unit test approach
 
@@ -671,19 +732,39 @@ pytest tests/unit/ -v
 - **Qdrant client** — mocked: `client.query_points`, `client.upsert`, `client.get_collections`. No Qdrant required.
 - **State** — hand-crafted dicts passed directly to the agent function.
 
-### Example: testing the mitigator feedback save
+### Example: testing the mitigator MCP execution
 
 ```python
-async def test_saves_low_confidence_to_qdrant():
-    mock_client, mock_embeddings = _mock_qdrant()
-    agent = make_incident_mitigator(qdrant_client=mock_client, embeddings=mock_embeddings)
+def _mock_mcp_tool(name, response):
+    tool = MagicMock()
+    tool.name = name
+    tool.ainvoke = AsyncMock(return_value=json.dumps(response))
+    return tool
+
+async def test_executes_steps_via_mcp():
+    exec_tool   = _mock_mcp_tool("execute_mitigation_step", {"status": "executed"})
+    status_tool = _mock_mcp_tool("check_mitigation_status", {"steps_completed": 2, "steps_total": 2})
+    feedback_tool = _mock_mcp_tool("store_mitigation_feedback", {"qdrant_stored": True})
+
+    agent = make_incident_mitigator(mitigation_tools=[exec_tool, status_tool, feedback_tool])
+    result = await agent(_state(mitigation_workflows=[_wf(score=0.87, steps=["step A", "step B"])]))
+
+    assert result["phase"] == "communicate"
+    assert exec_tool.ainvoke.call_count == 2      # one call per step
+    args = exec_tool.ainvoke.call_args_list[0][0][0]   # already a dict
+    assert args["step_index"] == 0
+    assert args["step_description"] == "step A"
+
+async def test_saves_low_confidence_feedback_via_mcp():
+    feedback_tool = _mock_mcp_tool("store_mitigation_feedback", {"qdrant_stored": True})
+    agent = make_incident_mitigator(mitigation_tools=[feedback_tool])
 
     result = await agent(_state(mitigation_workflows=[_wf(score=0.3)], feedback_iteration=0))
 
     assert result["phase"] == "feedback"
-    mock_client.upsert.assert_called_once()
-    assert mock_client.upsert.call_args[1]["collection_name"] == "feedback_history"
-    assert mock_client.upsert.call_args[1]["points"][0].payload["outcome"] == "low_confidence"
+    feedback_tool.ainvoke.assert_called_once()
+    args = feedback_tool.ainvoke.call_args[0][0]
+    assert args["outcome"] == "low_confidence"
 ```
 
 ### Observability

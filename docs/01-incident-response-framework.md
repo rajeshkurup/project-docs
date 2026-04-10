@@ -67,8 +67,8 @@ The system is split into three distinct layers:
 │                   SERVICE LAYER (MCP Servers)                   │
 │   ┌───────────────┐  ┌──────────────────┐  ┌────────────────┐   │
 │   │ Graph DB MCP  │  │ Mitigation MCP   │  │  Comms MCP     │   │
-│   │ (graphserv    │  │ (workflows +     │  │  (Email/Slack/ │   │
-│   │  REST client) │  │  Qdrant search)  │  │   PagerDuty)   │   │
+│   │ graphmcpserv  │  │mitigationmcpserv │  │ commsmcpserv   │   │
+│   │ 10 tools      │  │ 4 tools          │  │ 6 tools        │   │
 │   └──────┬────────┘  └────────┬─────────┘  └───────┬────────┘   │
 ├──────────┼────────────────────┼────────────────────┼────────────┤
 │                         DATA LAYER                              │
@@ -102,7 +102,7 @@ The Incident Communicator acts as a cross-cutting notification layer: it is invo
 | MCP client | `langchain-mcp-adapters` | ≥ 0.2, converts MCP tools → LangChain tools |
 | Graph service | graphserv (existing Go API) | Wraps Neo4j, runs on `:8080` |
 | Containerisation | Docker + Docker Compose | All services in one compose file |
-| Testing | pytest + pytest-asyncio | 89 unit tests, all offline |
+| Testing | pytest + pytest-asyncio | 124 unit tests, all offline |
 | Async HTTP client | `httpx` | Used by Graph MCP server |
 | MySQL async client | `aiomysql` | LangGraph checkpoint saver |
 | Qdrant client | `qdrant-client` | ≥ 1.7, `AsyncQdrantClient` |
@@ -179,7 +179,15 @@ Summary upserts use a deterministic `uuid5` point ID so the Communicator's three
 
 ### 5.4 MCP Servers
 
-Three MCP servers are implemented using the Python MCP SDK. Each is a standalone Python process spawned by the LangGraph agent layer via stdio transport. LangChain's `langchain-mcp-adapters` library converts MCP tool schemas into LangChain-compatible tools that agents can call like any other. See the [MCP Servers](./04-mcp-servers.md) document for full details.
+Three MCP servers are implemented using the Python MCP SDK, each living in its own repository under the project root. Each is a standalone Python process spawned by the LangGraph agent layer over the stdio transport. LangChain's `langchain-mcp-adapters` library converts MCP tool schemas into LangChain-compatible tools that agents can call like any other.
+
+| Server | Repo | Tools | Key backend |
+|--------|------|-------|-------------|
+| Graph DB MCP | `graphmcpserv/` | 10 tools | graphserv REST API (Neo4j) |
+| Mitigation MCP | `mitigationmcpserv/` | 4 tools | Qdrant `mitigation_workflows` + Ollama embeddings |
+| Communications MCP | `commsmcpserv/` | 6 tools | Stub log files (production-ready swap points) |
+
+All three servers share the `mcp_servers.*` Python namespace. To avoid namespace conflicts, each is launched with `cwd` set to its own source directory so it resolves its own package independently — no editable installs required. See the [MCP Servers](./04-mcp-servers.md) document for full details.
 
 ### 5.5 LangGraph Agent Design
 
@@ -210,10 +218,13 @@ Each phase is independently testable before the next begins. Development proceed
 
 ### Phase 3 — Mitigation & Comms MCP Servers (~2 days)
 
-- Build `mcp_servers/mitigation/server.py` with Qdrant search tools.
-- Build `mcp_servers/comms/server.py` with stub channel senders (log-to-file).
+- Build `mitigationmcpserv/mcp_servers/mitigation/server.py` with 4 tools: `search_mitigation_workflows` (Qdrant + mock fallback), `execute_mitigation_step` (in-memory run registry + log file), `check_mitigation_status`, `store_mitigation_feedback` (embeds and upserts to Qdrant).
+- Build `commsmcpserv/mcp_servers/comms/server.py` with 6 tools: `send_email`, `send_slack`, `send_teams`, `send_sms`, `page_oncall`, `update_ticket_comms` — all log-to-file stubs with stub delivery IDs.
+- Wire both servers into `mcp_client.py` using per-server `cwd` to avoid namespace conflicts.
+- Update `incident_mitigator` to execute steps via `execute_mitigation_step` and store feedback via `store_mitigation_feedback`.
+- Update `incident_communicator` to dispatch by severity using `_SEVERITY_CHANNELS` map and call each channel tool.
 - Test Qdrant semantic search with sample mitigation queries.
-- Verify MCP tools are callable via `langchain-mcp-adapters`.
+- Verify all MCP tools are callable via `langchain-mcp-adapters`.
 
 ### Phase 4 — Core Agents: Detector & Root Cause Finder (~3 days)
 
@@ -408,7 +419,11 @@ incident-response/
 ├── docker-compose.yml                       # All 6 services
 ├── graphserv/                               # Go REST API (Neo4j wrapper)
 ├── graphmcpserv/                            # Graph DB MCP server (Python)
-│   └── mcp_servers/graph_db/server.py
+│   └── mcp_servers/graph_db/server.py       # 10 tools — list, get, RCA, blast radius, tickets
+├── mitigationmcpserv/                       # Mitigation MCP server (Python)
+│   └── mcp_servers/mitigation/server.py     # 4 tools — search, execute, status, feedback
+├── commsmcpserv/                            # Communications MCP server (Python)
+│   └── mcp_servers/comms/server.py          # 6 tools — email, Slack, Teams, SMS, PagerDuty, ticket
 ├── qdrant_data/
 │   └── seed_data.py                         # Seeds all 5 Qdrant collections
 └── autoincrespagent/                        # LangGraph agent package
@@ -424,13 +439,13 @@ incident-response/
     │   │   ├── state.py                     # AgentState TypedDict
     │   │   ├── supervisor.py                # Deterministic phase router
     │   │   ├── incident_detector.py         # Phase 1 — anomaly classification
-    │   │   ├── incident_communicator.py     # Cross-phase — print + Qdrant upsert
+    │   │   ├── incident_communicator.py     # Cross-phase — MCP channel dispatch + Qdrant upsert
     │   │   ├── root_cause_finder.py         # Phase 2 — graph + RAG + LLM
-    │   │   ├── incident_mitigator.py        # Phase 3 — mock execution + feedback save
+    │   │   ├── incident_mitigator.py        # Phase 3 — MCP step execution + feedback save
     │   │   └── incident_summarizer.py       # Phase 5 — summary + Qdrant upsert
     │   ├── graph/
-    │   │   ├── mcp_client.py                # MultiServerMCPClient factory
-    │   │   └── workflow.py                  # StateGraph assembly
+    │   │   ├── mcp_client.py                # MultiServerMCPClient factory (all 3 servers)
+    │   │   └── workflow.py                  # StateGraph assembly + tool routing by name
     │   ├── memory/
     │   │   └── mysql_saver.py               # LangGraph MySQL checkpoint saver
     │   └── vector/
@@ -439,12 +454,12 @@ incident-response/
     │   └── schema.sql                       # MySQL DDL
     └── tests/
         └── unit/
-            ├── test_supervisor.py
-            ├── test_detector.py
-            ├── test_root_cause_finder.py
-            ├── test_incident_mitigator.py
-            ├── test_incident_communicator.py
-            └── test_incident_summarizer.py
+            ├── test_supervisor.py           # 12 tests
+            ├── test_detector.py             # 18 tests
+            ├── test_root_cause_finder.py    # 17 tests
+            ├── test_incident_mitigator.py   # 31 tests — MCP execution + feedback
+            ├── test_incident_communicator.py# 34 tests — channel selection + dispatch
+            └── test_incident_summarizer.py  # 12 tests
 ```
 
 ---
